@@ -70,66 +70,76 @@
   table.review-table textarea{width:100%; min-width:120px; font-family:inherit; font-size:.8rem; box-sizing:border-box;}
   #review-detail-root-wrap{margin-top:10px;}
   #review-detail-actions{display:flex; gap:10px; margin:10px 0; flex-wrap:wrap; align-items:center;}
+
+  @media print{
+    .no-print{display:none !important;}
+    body{background:#fff;}
+    .wrap{max-width:none; padding:0; margin:0;}
+    #grid-root, #review-table-root{overflow:visible; border:none; padding:0;}
+    th.ruler-col, th.ruler-row-num, th.ruler-corner{position:static;}
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>__FORM_TITLE__</h1>
-  <p class="lead">
+  <h1 class="no-print">__FORM_TITLE__</h1>
+  <p class="lead no-print">
     このフォームに入力し、「入力内容をJSONで書き出す」ボタンから結果を保存してください。<br>
     通信は一切行いません（ブラウザの中だけで完結します）。保存したJSONファイルは庁内の共有ドライブ等でやり取りできます。
   </p>
 
-  <div id="export-dir-bar">
+  <div id="export-dir-bar" class="no-print">
     <button class="secondary" id="btn-pick-export-dir">📁 書き出し先フォルダを指定する（Edge/Chrome）</button>
     <span id="export-dir-status" class="hint">指定すると、以後のJSON書き出しはダウンロードではなくこのフォルダへ直接保存されます（通常画面・レビュー画面どちらの書き出しにも適用されます）。</span>
   </div>
 
-  <div id="actions">
+  <div id="actions" class="no-print">
     <button id="btn-export">📋 入力内容をJSONで書き出す</button>
     <button class="secondary" onclick="document.getElementById('file-load-json').click()">📂 保存済みJSONを読み込む</button>
     <input type="file" id="file-load-json" accept="application/json" style="display:none">
     <button class="secondary" id="btn-open-review" style="display:none">📑 2次以降用一括入力画面へ移動する</button>
+    <button class="secondary" id="btn-print-grid">🖨 この画面を印刷する</button>
   </div>
-  <div id="status"></div>
+  <div id="status" class="no-print"></div>
 
   <div id="grid-root"></div>
-  <p class="hint" id="grid-hint">※ 見出し（灰色）・「（自動計算）」のセルは入力対象外です。空欄セルに直接入力してください。</p>
-  <p class="hint" id="field-legend" style="display:none">
+  <p class="hint no-print" id="grid-hint">※ 見出し（灰色）・「（自動計算）」のセルは入力対象外です。空欄セルに直接入力してください。</p>
+  <p class="hint no-print" id="field-legend" style="display:none">
     <span class="legend-item"><span class="legend-swatch legend-swatch-primary"></span>1次入力欄</span>
     <span class="legend-item"><span class="legend-swatch legend-swatch-review"></span>2次以降入力欄（レビュー欄。どのセルも入力は自由ですが、色は入力担当の目安です）</span>
   </p>
 
   <div id="review-root" style="display:none">
-    <p class="lead">
+    <p class="lead no-print">
       複数の事業のJSONをまとめて読み込み、一覧表でレビュー欄（判定・コメント等）を入力できます。
-      各行の「詳細」から、所管部署が入力した内容を閲覧専用で確認できます。
+      各行の「詳細」から、所管部署が入力した内容を確認・編集できます。
     </p>
-    <div id="review-actions">
+    <div id="review-actions" class="no-print">
       <button class="secondary" onclick="document.getElementById('review-file-load').click()">📂 JSONファイルを選ぶ（複数可）</button>
       <input type="file" id="review-file-load" accept="application/json" multiple style="display:none">
       <button class="secondary" id="review-btn-pick-dir" style="display:none">📁 フォルダを指定する（Edge/Chrome）</button>
       <button class="secondary" id="review-btn-refresh" style="display:none">🔄 更新</button>
       <button class="secondary" id="btn-close-review">← 通常の入力画面に戻る</button>
     </div>
-    <p class="hint">共有フォルダ（提出用サーバー等）を直接指定できるのはEdge・Chromeのみです。それ以外のブラウザでは、ローカルの専用フォルダにJSONを集めておき、都度「JSONファイルを選ぶ」で選び直してください。</p>
-    <div id="review-col-toggle"></div>
-    <div id="review-summary"></div>
+    <p class="hint no-print">共有フォルダ（提出用サーバー等）を直接指定できるのはEdge・Chromeのみです。それ以外のブラウザでは、ローカルの専用フォルダにJSONを集めておき、都度「JSONファイルを選ぶ」で選び直してください。</p>
+    <div id="review-col-toggle" class="no-print"></div>
+    <div id="review-summary" class="no-print"></div>
     <div id="review-table-root"></div>
   </div>
 
   <div id="review-detail-root-wrap" style="display:none">
-    <div id="review-detail-actions">
+    <div id="review-detail-actions" class="no-print">
       <button id="btn-save-detail">💾 保存して一覧に戻る</button>
       <button class="secondary" id="btn-back-to-review-list">← 保存せずに一覧に戻る</button>
+      <button class="secondary" id="btn-print-detail">🖨 この画面を印刷する</button>
     </div>
-    <p class="hint">この画面でもすべてのセルに入力・修正できます。色分けは1次／2次以降どちらの入力欄かの目安です。</p>
+    <p class="hint no-print">この画面でもすべてのセルに入力・修正できます。色分けは1次／2次以降どちらの入力欄かの目安です。</p>
     <div id="review-detail-root"></div>
   </div>
 
   <div id="review-scratch-root" style="display:none"></div>
 
-  <p class="ai-note">この入力フォームは、Claude（AI）を用いて設計・実装されています。</p>
+  <p class="ai-note no-print">この入力フォームは、Claude（AI）を用いて設計・実装されています。</p>
 </div>
 
 <script>

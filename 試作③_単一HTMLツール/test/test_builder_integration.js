@@ -593,7 +593,7 @@ function setModalInput(win, id, value) {
         fr.readAsText(capturedBlob);
       });
       assertTrue(html.includes('<title>カスタムタイトル</title>'), 'titleタグに反映されているべき');
-      assertTrue(html.includes('<h1>カスタムタイトル</h1>'), 'h1に反映されているべき');
+      assertTrue(html.includes('カスタムタイトル</h1>'), 'h1に反映されているべき');
     });
 
     await testAsync('ファイル名に含める項目を選ぶと、選んだ順ではなくシート上の並び順でfileNameFieldsに入る', async () => {

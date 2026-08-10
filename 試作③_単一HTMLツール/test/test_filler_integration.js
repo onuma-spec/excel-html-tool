@@ -108,6 +108,7 @@ function newFillerPage(structure) {
       <button id="btn-export">export</button>
       <input type="file" id="file-load-json">
       <button id="btn-open-review" style="display:none">review</button>
+      <button id="btn-print-grid">print</button>
     </div>
     <div id="status"></div>
     <div id="grid-root"></div>
@@ -127,6 +128,7 @@ function newFillerPage(structure) {
     <div id="review-detail-root-wrap" style="display:none">
       <button id="btn-save-detail">save</button>
       <button id="btn-back-to-review-list">back</button>
+      <button id="btn-print-detail">print</button>
       <div id="review-detail-root"></div>
     </div>
     <div id="review-scratch-root" style="display:none"></div>
@@ -335,6 +337,34 @@ function buildSampleData(dom, values) {
       win.__app.openReviewDetail(win.__app.REVIEW.records[0]);
       const reviewTd = win.document.getElementById(c4id).closest('td');
       assertTrue(reviewTd.classList.contains('cell-field-review'), '詳細画面でもレビュー欄セルにcell-field-reviewが付くはず');
+    });
+  });
+
+  await runSuiteAsync('filler_app: 印刷ボタン', async () => {
+    await testAsync('通常画面の印刷ボタン（#btn-print-grid）をクリックしても例外を投げない', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      // jsdomはwindow.printを実装していないため、no-opで差し替えて呼び出しの配線だけ検証する
+      let called = false;
+      win.print = () => { called = true; };
+      win.document.getElementById('btn-print-grid').click();
+      assertTrue(called);
+    });
+
+    await testAsync('レビュー詳細画面の印刷ボタン（#btn-print-detail）をクリックしても例外を投げない', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
+      structure.reviewFields = [c4id];
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
+      win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
+      win.__app.openReviewDetail(win.__app.REVIEW.records[0]);
+      let called = false;
+      win.print = () => { called = true; };
+      win.document.getElementById('btn-print-detail').click();
+      assertTrue(called);
     });
   });
 

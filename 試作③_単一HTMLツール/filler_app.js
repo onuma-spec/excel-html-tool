@@ -493,6 +493,8 @@ function init() {
   $('#btn-close-review').addEventListener('click', exitReviewMode);
   $('#btn-back-to-review-list').addEventListener('click', backToReviewListFromDetail);
   $('#btn-save-detail').addEventListener('click', saveDetailAndBackToList);
+  $('#btn-print-grid').addEventListener('click', () => window.print());
+  $('#btn-print-detail').addEventListener('click', () => window.print());
   $('#review-file-load').addEventListener('change', (ev) => {
     handleReviewFileInput(ev.target.files);
     ev.target.value = '';
