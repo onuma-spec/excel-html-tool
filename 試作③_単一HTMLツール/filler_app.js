@@ -533,6 +533,30 @@ function cleanupBulkPrint() {
   if (root) root.innerHTML = '';
 }
 
+// 現在の絞り込み結果を対象に、1件ずつ「📋 書き出す」と同じ内容（mergedDataForExport＋
+// buildExportFileNameForRecord）をsaveBlobで書き出す。saveToExportDir側が非同期な
+// フォルダ書き込みを行うため、Promise.allのような並列実行ではなく1件ずつ完了を
+// 待って進める（同名ファイルの上書き確認ダイアログ等が同時多発しないようにするため）。
+function bulkExportFiltered() {
+  const filtered = filteredRecords();
+  if (filtered.length === 0) {
+    $('#status').textContent = '絞り込み結果が0件のため、書き出す対象がありません。';
+    return;
+  }
+  const exportNext = (i) => {
+    if (i >= filtered.length) {
+      $('#status').textContent = `${filtered.length}件を書き出しました。`;
+      return;
+    }
+    const record = filtered[i];
+    const merged = mergedDataForExport(record);
+    const filename = buildExportFileNameForRecord(record);
+    const blob = new Blob([JSON.stringify(merged, null, 2)], { type: 'application/json' });
+    saveBlob(blob, filename, () => exportNext(i + 1));
+  };
+  exportNext(0);
+}
+
 // 画面切替：'normal'（通常の1件入力）／'list'（レビュー一覧表）／'detail'（レビュー詳細・閲覧専用）。
 // #grid-rootと#review-detail-rootは同じSTRUCTURE（同じcellId体系）を使うため、
 // 同時に中身を持たせるとdocument.getElementByIdが衝突する。表示していない方は
@@ -664,6 +688,7 @@ function init() {
   $('#btn-print-grid').addEventListener('click', () => window.print());
   $('#btn-print-detail').addEventListener('click', () => window.print());
   $('#btn-bulk-print').addEventListener('click', bulkPrintFiltered);
+  $('#btn-bulk-export').addEventListener('click', bulkExportFiltered);
   window.addEventListener('afterprint', cleanupBulkPrint);
   $('#review-file-load').addEventListener('change', (ev) => {
     handleReviewFileInput(ev.target.files);
@@ -724,7 +749,7 @@ if (typeof window !== 'undefined') {
     findMissingRequiredFields, labelForCellId,
     get REVIEW() { return REVIEW; },
     upsertRecords, extractFieldValues, mergedDataForExport, isRecordComplete,
-    filteredRecords, renderReviewBody, bulkPrintFiltered, cleanupBulkPrint,
+    filteredRecords, renderReviewBody, bulkPrintFiltered, cleanupBulkPrint, bulkExportFiltered,
     buildExportFileNameForRecord, renderReviewList, enterReviewMode, exitReviewMode,
     openReviewDetail, backToReviewListFromDetail, saveDetailAndBackToList, handleReviewFileInput,
     pickReviewDirectory, scanReviewDirectory,

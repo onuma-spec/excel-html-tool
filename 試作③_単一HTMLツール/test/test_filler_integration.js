@@ -128,6 +128,7 @@ function newFillerPage(structure) {
         <option value="done">done</option>
       </select>
       <div id="review-summary"></div>
+      <button id="btn-bulk-export">bulkexport</button>
       <button id="btn-bulk-print">bulkprint</button>
       <div id="review-table-root"></div>
     </div>
@@ -855,6 +856,88 @@ function buildSampleData(dom, values) {
       assertTrue(win.document.body.classList.contains('bulk-printing'));
       win.dispatchEvent(new win.Event('afterprint'));
       assertFalse(win.document.body.classList.contains('bulk-printing'), 'afterprintでcleanupBulkPrintが呼ばれるはず');
+    });
+  });
+
+  await runSuiteAsync('filler_app: 一括書き出し（絞り込み結果を対象に連続書き出し）', async () => {
+    function blobToText(win, blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new win.FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsText(blob);
+      });
+    }
+    function makeMockDirHandle(win) {
+      const written = {};
+      return {
+        name: 'mock-folder', written,
+        async getFileHandle(name, opts) {
+          if (!(opts && opts.create)) { const err = new Error('not found'); err.name = 'NotFoundError'; throw err; }
+          return { async createWritable() { return { async write(blob) { written[name] = await blobToText(win, blob); }, async close() {} }; } };
+        },
+      };
+    }
+    async function setupTwoRecordsForExport() {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
+      structure.reviewFields = [c4id];
+      structure.fileNameFields = [c3id];
+      structure.displayCandidateFields = [c3id];
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const dataA = buildSampleData(dom, { [c3id]: '部署A', [c4id]: '判定OK' });
+      const dataB = buildSampleData(dom, { [c3id]: '部署B', [c4id]: '' });
+      win.__app.upsertRecords([{ fileName: 'a.json', data: dataA }, { fileName: 'b.json', data: dataB }]);
+      win.__app.enterReviewMode();
+      return { win, c3id, c4id };
+    }
+
+    await testAsync('書き出し先フォルダ未指定：絞り込み結果の件数分だけダウンロードが発生し、完了メッセージが出る', async () => {
+      const { win } = await setupTwoRecordsForExport();
+      win.URL.createObjectURL = () => 'blob:mock';
+      let clickCount = 0;
+      win.HTMLAnchorElement.prototype.click = function () { clickCount++; };
+      win.__app.bulkExportFiltered();
+      assertEqual(clickCount, 2, '2件分のダウンロードが発生するはず');
+      assertEqual(win.document.getElementById('status').textContent, '2件を書き出しました。');
+    });
+
+    await testAsync('書き出し先フォルダ指定時：絞り込み結果の件数分だけフォルダへ直接書き込まれる', async () => {
+      const { win } = await setupTwoRecordsForExport();
+      const dirHandle = makeMockDirHandle(win);
+      win.__app.setExportDirHandle(dirHandle);
+      win.__app.bulkExportFiltered();
+      await waitFor(() => Object.keys(dirHandle.written).length === 2);
+      assertEqual(win.document.getElementById('status').textContent, '2件を書き出しました。');
+    });
+
+    await testAsync('ステータス絞り込み中に呼ぶと、絞り込んだ件数分だけ書き出し対象になる', async () => {
+      const { win } = await setupTwoRecordsForExport();
+      win.document.getElementById('review-status-select').value = 'done';
+      win.document.getElementById('review-status-select').dispatchEvent(new win.Event('change'));
+      win.URL.createObjectURL = () => 'blob:mock';
+      let clickCount = 0;
+      win.HTMLAnchorElement.prototype.click = function () { clickCount++; };
+      win.__app.bulkExportFiltered();
+      assertEqual(clickCount, 1, 'レビュー完了の1件だけが対象になるはず');
+      assertEqual(win.document.getElementById('status').textContent, '1件を書き出しました。');
+    });
+
+    await testAsync('絞り込み結果が0件のときは何も書き出さず、その旨のメッセージが出る', async () => {
+      const { win } = await setupTwoRecordsForExport();
+      const cb = [...win.document.querySelectorAll('.col-filter-panel label')]
+        .find(l => l.textContent === '部署A').querySelector('input');
+      cb.checked = false; cb.dispatchEvent(new win.Event('change'));
+      const cb2 = [...win.document.querySelectorAll('.col-filter-panel label')]
+        .find(l => l.textContent === '部署B').querySelector('input');
+      cb2.checked = false; cb2.dispatchEvent(new win.Event('change'));
+
+      let clicked = false;
+      win.HTMLAnchorElement.prototype.click = function () { clicked = true; };
+      win.__app.bulkExportFiltered();
+      assertFalse(clicked);
+      assertEqual(win.document.getElementById('status').textContent, '絞り込み結果が0件のため、書き出す対象がありません。');
     });
   });
 

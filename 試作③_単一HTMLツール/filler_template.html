@@ -64,7 +64,7 @@
   #review-status-filter{font-size:.78rem; margin:8px 0;}
   #review-status-filter select{font-family:inherit; font-size:.8rem; padding:2px 4px;}
   #review-summary{font-size:.82rem; color:var(--sub); margin:8px 0;}
-  #review-bulk-print-bar{display:flex; gap:10px; align-items:center; margin:8px 0; flex-wrap:wrap;}
+  #review-bulk-actions-bar{display:flex; gap:10px; align-items:center; margin:8px 0; flex-wrap:wrap;}
   #bulk-print-root{display:none;}
   .bulk-print-record{margin-bottom:24px;}
   .bulk-print-record h2{font-size:1rem; margin:0 0 8px;}
@@ -158,9 +158,10 @@
       </label>
     </div>
     <div id="review-summary" class="no-print"></div>
-    <div id="review-bulk-print-bar" class="no-print">
+    <div id="review-bulk-actions-bar" class="no-print">
+      <button class="secondary" id="btn-bulk-export">📦 絞り込み結果を一括書き出す</button>
       <button class="secondary" id="btn-bulk-print">🖨 絞り込み結果を一括印刷</button>
-      <span class="hint">現在の絞り込み結果（列フィルタ・状態）を対象に、1件ずつページを分けて印刷します。</span>
+      <span class="hint">現在の絞り込み結果（列フィルタ・状態）が対象です。書き出し先フォルダを指定していない場合、書き出しはファイルごとに個別のダウンロードになります。</span>
     </div>
     <div id="review-table-root"></div>
   </div>
