@@ -128,6 +128,7 @@ function newFillerPage(structure) {
         <option value="done">done</option>
       </select>
       <div id="review-summary"></div>
+      <button id="btn-bulk-print">bulkprint</button>
       <div id="review-table-root"></div>
     </div>
     <div id="review-detail-root-wrap" style="display:none">
@@ -137,6 +138,7 @@ function newFillerPage(structure) {
       <div id="review-detail-root"></div>
     </div>
     <div id="review-scratch-root" style="display:none"></div>
+    <div id="bulk-print-root"></div>
     <script>${SRC.core}</script>
     <script>${SRC.grid}</script>
     <script>
@@ -763,6 +765,72 @@ function buildSampleData(dom, values) {
 
       win.document.getElementById('colvis_' + c3id).click(); // 列を非表示化（renderReviewTableが全体再描画）
       assertEqual(win.document.querySelectorAll('#review-tbody tr').length, 3, '列を隠すとその列のフィルタは無視され全件表示に戻るはず');
+    });
+  });
+
+  await runSuiteAsync('filler_app: 一括印刷（絞り込み結果を対象に連続印刷）', async () => {
+    async function setupTwoRecordsForPrint() {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
+      structure.reviewFields = [c4id];
+      structure.displayCandidateFields = [c3id];
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const dataA = buildSampleData(dom, { [c3id]: '部署A', [c4id]: '判定OK' });
+      const dataB = buildSampleData(dom, { [c3id]: '部署B', [c4id]: '' });
+      win.__app.upsertRecords([{ fileName: 'a.json', data: dataA }, { fileName: 'b.json', data: dataB }]);
+      win.__app.enterReviewMode();
+      return { win, c3id, c4id };
+    }
+
+    await testAsync('絞り込みなしでbulkPrintFilteredを呼ぶと、全レコード分のスナップショットが#bulk-print-rootに追加され印刷が呼ばれる', async () => {
+      const { win } = await setupTwoRecordsForPrint();
+      let printed = false;
+      win.print = () => { printed = true; };
+      win.__app.bulkPrintFiltered();
+      const sections = win.document.querySelectorAll('#bulk-print-root .bulk-print-record');
+      assertEqual(sections.length, 2);
+      assertTrue(printed);
+      assertTrue(win.document.body.classList.contains('bulk-printing'));
+    });
+
+    await testAsync('ステータス絞り込み中にbulkPrintFilteredを呼ぶと、絞り込んだ件数分だけ印刷対象になる', async () => {
+      const { win } = await setupTwoRecordsForPrint();
+      win.document.getElementById('review-status-select').value = 'done';
+      win.document.getElementById('review-status-select').dispatchEvent(new win.Event('change'));
+      win.print = () => {};
+      win.__app.bulkPrintFiltered();
+      const sections = win.document.querySelectorAll('#bulk-print-root .bulk-print-record');
+      assertEqual(sections.length, 1, 'レビュー完了の1件だけが一括印刷の対象になるはず');
+      assertTrue(sections[0].textContent.includes('a.json'));
+    });
+
+    await testAsync('複数レコード分のスナップショットを並べても、クローンされたテーブルにid属性が残らない（重複IDを避ける）', async () => {
+      const { win } = await setupTwoRecordsForPrint();
+      win.print = () => {};
+      win.__app.bulkPrintFiltered();
+      const idsRemaining = win.document.querySelectorAll('#bulk-print-root [id]');
+      assertEqual(idsRemaining.length, 0, 'id属性を持つ要素が1つも残っていないはず');
+      const tables = win.document.querySelectorAll('#bulk-print-root table.excel-grid');
+      assertEqual(tables.length, 2, '2レコード分のテーブルが両方描画されているはず');
+    });
+
+    await testAsync('cleanupBulkPrintを呼ぶと、bulk-printingクラスと#bulk-print-rootの中身が消える', async () => {
+      const { win } = await setupTwoRecordsForPrint();
+      win.print = () => {};
+      win.__app.bulkPrintFiltered();
+      win.__app.cleanupBulkPrint();
+      assertFalse(win.document.body.classList.contains('bulk-printing'));
+      assertEqual(win.document.getElementById('bulk-print-root').innerHTML, '');
+    });
+
+    await testAsync('afterprintイベントで自動的に後片付けされる', async () => {
+      const { win } = await setupTwoRecordsForPrint();
+      win.print = () => {};
+      win.__app.bulkPrintFiltered();
+      assertTrue(win.document.body.classList.contains('bulk-printing'));
+      win.dispatchEvent(new win.Event('afterprint'));
+      assertFalse(win.document.body.classList.contains('bulk-printing'), 'afterprintでcleanupBulkPrintが呼ばれるはず');
     });
   });
 

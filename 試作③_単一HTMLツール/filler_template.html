@@ -64,6 +64,10 @@
   #review-status-filter{font-size:.78rem; margin:8px 0;}
   #review-status-filter select{font-family:inherit; font-size:.8rem; padding:2px 4px;}
   #review-summary{font-size:.82rem; color:var(--sub); margin:8px 0;}
+  #review-bulk-print-bar{display:flex; gap:10px; align-items:center; margin:8px 0; flex-wrap:wrap;}
+  #bulk-print-root{display:none;}
+  .bulk-print-record{margin-bottom:24px;}
+  .bulk-print-record h2{font-size:1rem; margin:0 0 8px;}
   #review-table-root{overflow-x:auto;}
   table.review-table{border-collapse:collapse; width:100%; font-size:.8rem; background:var(--card);}
   table.review-table th, table.review-table td{border:1px solid var(--line); padding:5px 7px; text-align:left; vertical-align:top;}
@@ -88,6 +92,13 @@
     .wrap{max-width:none; padding:0; margin:0;}
     #grid-root, #review-table-root{overflow:visible; border:none; padding:0;}
     th.ruler-col, th.ruler-row-num, th.ruler-corner{position:static;}
+
+    /* 一括印刷中は#bulk-print-root以外の直下要素を全て隠し、スナップショットだけを
+       印刷対象にする（no-printクラスの有無に関わらず強制的に隠す）。 */
+    body.bulk-printing .wrap > *:not(#bulk-print-root){display:none !important;}
+    body.bulk-printing #bulk-print-root{display:block;}
+    .bulk-print-record{page-break-after:always;}
+    .bulk-print-record:last-child{page-break-after:auto;}
   }
 </style>
 </head>
@@ -144,8 +155,14 @@
       </label>
     </div>
     <div id="review-summary" class="no-print"></div>
+    <div id="review-bulk-print-bar" class="no-print">
+      <button class="secondary" id="btn-bulk-print">🖨 絞り込み結果を一括印刷</button>
+      <span class="hint">現在の絞り込み結果（列フィルタ・状態）を対象に、1件ずつページを分けて印刷します。</span>
+    </div>
     <div id="review-table-root"></div>
   </div>
+
+  <div id="bulk-print-root"></div>
 
   <div id="review-detail-root-wrap" style="display:none">
     <div id="review-detail-actions" class="no-print">

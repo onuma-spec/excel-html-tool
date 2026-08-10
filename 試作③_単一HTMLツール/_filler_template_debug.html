@@ -64,6 +64,10 @@
   #review-status-filter{font-size:.78rem; margin:8px 0;}
   #review-status-filter select{font-family:inherit; font-size:.8rem; padding:2px 4px;}
   #review-summary{font-size:.82rem; color:var(--sub); margin:8px 0;}
+  #review-bulk-print-bar{display:flex; gap:10px; align-items:center; margin:8px 0; flex-wrap:wrap;}
+  #bulk-print-root{display:none;}
+  .bulk-print-record{margin-bottom:24px;}
+  .bulk-print-record h2{font-size:1rem; margin:0 0 8px;}
   #review-table-root{overflow-x:auto;}
   table.review-table{border-collapse:collapse; width:100%; font-size:.8rem; background:var(--card);}
   table.review-table th, table.review-table td{border:1px solid var(--line); padding:5px 7px; text-align:left; vertical-align:top;}
@@ -88,6 +92,13 @@
     .wrap{max-width:none; padding:0; margin:0;}
     #grid-root, #review-table-root{overflow:visible; border:none; padding:0;}
     th.ruler-col, th.ruler-row-num, th.ruler-corner{position:static;}
+
+    /* 一括印刷中は#bulk-print-root以外の直下要素を全て隠し、スナップショットだけを
+       印刷対象にする（no-printクラスの有無に関わらず強制的に隠す）。 */
+    body.bulk-printing .wrap > *:not(#bulk-print-root){display:none !important;}
+    body.bulk-printing #bulk-print-root{display:block;}
+    .bulk-print-record{page-break-after:always;}
+    .bulk-print-record:last-child{page-break-after:auto;}
   }
 </style>
 </head>
@@ -144,8 +155,14 @@
       </label>
     </div>
     <div id="review-summary" class="no-print"></div>
+    <div id="review-bulk-print-bar" class="no-print">
+      <button class="secondary" id="btn-bulk-print">🖨 絞り込み結果を一括印刷</button>
+      <span class="hint">現在の絞り込み結果（列フィルタ・状態）を対象に、1件ずつページを分けて印刷します。</span>
+    </div>
     <div id="review-table-root"></div>
   </div>
+
+  <div id="bulk-print-root"></div>
 
   <div id="review-detail-root-wrap" style="display:none">
     <div id="review-detail-actions" class="no-print">
@@ -1752,6 +1769,47 @@ function renderReviewList() {
   renderReviewTable();
 }
 
+// 1件分のレコードを、印刷用の読み取り専用スナップショット（<div class="bulk-print-record">）
+// として組み立てる。renderGrid/loadDataIntoGridで#review-scratch-rootに実描画してから
+// テーブルをクローンし、id属性を全て取り除く（複数レコードを同時にDOMへ並べるため、
+// 同じcellId体系のid属性がそのまま残ると重複IDになってしまうことを避ける）。
+function buildBulkPrintSection(record) {
+  const scratch = $('#review-scratch-root');
+  const tempState = buildStateFromStructure(STRUCTURE);
+  GridRender.renderGrid(scratch, tempState, { showGear: false, readonly: true, reviewFieldIds: reviewFieldIdSet() });
+  GridRender.loadDataIntoGrid(tempState, record.data || {});
+  const table = scratch.querySelector('table');
+  const clone = table.cloneNode(true);
+  clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+  scratch.innerHTML = '';
+
+  const section = el('div', { class: 'bulk-print-record' });
+  section.appendChild(el('h2', { text: record.fileName }));
+  section.appendChild(clone);
+  return section;
+}
+
+// 現在の絞り込み結果（列フィルタ・ステータス絞り込み）を対象に、1件ずつページを
+// 分けて一括印刷する。#bulk-print-rootへスナップショットを組み立て、body.bulk-printing
+// を付けてからwindow.print()を呼ぶ（表示の切替は@media print側のCSSに任せる）。
+function bulkPrintFiltered() {
+  const filtered = filteredRecords();
+  const root = $('#bulk-print-root');
+  root.innerHTML = '';
+  filtered.forEach((record) => root.appendChild(buildBulkPrintSection(record)));
+  document.body.classList.add('bulk-printing');
+  window.print();
+}
+
+// afterprintで後片付け（印刷ダイアログを閉じた後、bulk-printingクラスとスナップショットを除去）。
+// jsdomの自動テストではwindow.printをモックに差し替えるため実際には発火しないが、
+// 実ブラウザでの印刷完了後に画面を元の状態へ戻すために必要。
+function cleanupBulkPrint() {
+  document.body.classList.remove('bulk-printing');
+  const root = $('#bulk-print-root');
+  if (root) root.innerHTML = '';
+}
+
 // 画面切替：'normal'（通常の1件入力）／'list'（レビュー一覧表）／'detail'（レビュー詳細・閲覧専用）。
 // #grid-rootと#review-detail-rootは同じSTRUCTURE（同じcellId体系）を使うため、
 // 同時に中身を持たせるとdocument.getElementByIdが衝突する。表示していない方は
@@ -1881,6 +1939,8 @@ function init() {
   $('#btn-save-detail').addEventListener('click', saveDetailAndBackToList);
   $('#btn-print-grid').addEventListener('click', () => window.print());
   $('#btn-print-detail').addEventListener('click', () => window.print());
+  $('#btn-bulk-print').addEventListener('click', bulkPrintFiltered);
+  window.addEventListener('afterprint', cleanupBulkPrint);
   $('#review-file-load').addEventListener('change', (ev) => {
     handleReviewFileInput(ev.target.files);
     ev.target.value = '';
@@ -1940,7 +2000,7 @@ if (typeof window !== 'undefined') {
     findMissingRequiredFields, labelForCellId,
     get REVIEW() { return REVIEW; },
     upsertRecords, extractFieldValues, mergedDataForExport, isRecordComplete,
-    filteredRecords, renderReviewBody,
+    filteredRecords, renderReviewBody, bulkPrintFiltered, cleanupBulkPrint,
     buildExportFileNameForRecord, renderReviewList, enterReviewMode, exitReviewMode,
     openReviewDetail, backToReviewListFromDetail, saveDetailAndBackToList, handleReviewFileInput,
     pickReviewDirectory, scanReviewDirectory,
