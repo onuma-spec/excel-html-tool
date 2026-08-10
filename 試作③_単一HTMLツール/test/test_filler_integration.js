@@ -79,6 +79,22 @@ function buildRowspanRegressionStructure() {
   };
 }
 
+// labelForCellIdのautoNameフォールバック確認用。「1行1見出し1値」（A列に見出し、
+// B列に値セルが1つだけ）という、dbKey未設定だと本来の項目名が拾えなくなっていた
+// パターンをそのまま再現する（core_logic.jsのbuildRowEntryコメント参照）。
+function buildSingleLabelRowStructure() {
+  return {
+    formTitle: 'ラベルテスト',
+    maxRow: 1, maxCol: 2, widths: [], heights: [],
+    sections: [{ title: 'シート', row0: 1, row1: 1 }],
+    manualGroups: [],
+    cells: [
+      { row: 1, col: 1, row2: 1, col2: 1, value: '部署名', isFormula: false, formula: '', hasText: true, blocked: false, fillColor: null, renderType: null, renderOptions: null, dbKey: null },
+      { row: 1, col: 2, row2: 1, col2: 2, value: '', isFormula: false, formula: '', hasText: false, blocked: false, fillColor: null, renderType: null, renderOptions: null, dbKey: null },
+    ],
+  };
+}
+
 // 実際のfiller_template.htmlと同じID体系を最小限そろえたfixture。レビュー画面用の
 // 要素（#btn-open-review等）もinit()がaddEventListenerで参照するため、実テンプレートと
 // 乖離しないよう一通り含めておく（過去に⚙アイコン追加でテストのDOM前提が崩れた教訓と同型）。
@@ -239,6 +255,32 @@ function buildSampleData(dom, values) {
       assertEqual(win.__app.sanitizeForFileName('a/b:c*d?e"f<g>h|i'), 'abcdefghi');
       assertEqual(win.__app.sanitizeForFileName('改行\nタブ\t混在'), '改行タブ混在');
       assertEqual(win.__app.sanitizeForFileName('あ'.repeat(50)).length, 40);
+    });
+  });
+
+  await runSuiteAsync('filler_app: 列見出しラベル（labelForCellId）', async () => {
+    await testAsync('「1行1見出し1値」でdbKey未設定なら、生セル番地ではなく行見出し文字が返る', async () => {
+      const structure = buildSingleLabelRowStructure();
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const label = win.__app.labelForCellId('cell_R1_C2');
+      assertEqual(label, '部署名', 'B1のcellRef「B1」ではなく、A1の見出し文字が返るはず');
+    });
+
+    await testAsync('dbKeyが設定されていれば、行見出し文字よりdbKeyが優先される', async () => {
+      const structure = buildSingleLabelRowStructure();
+      structure.cells[1].dbKey = 'department';
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const label = win.__app.labelForCellId('cell_R1_C2');
+      assertEqual(label, 'department');
+    });
+
+    await testAsync('該当セルが存在しないidを渡すと、そのidがそのまま返る', async () => {
+      const structure = buildSingleLabelRowStructure();
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      assertEqual(win.__app.labelForCellId('cell_R99_C99'), 'cell_R99_C99');
     });
   });
 

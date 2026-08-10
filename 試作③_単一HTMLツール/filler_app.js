@@ -135,10 +135,16 @@ function findMissingRequiredFields() {
   });
 }
 
-// 未入力チェックのメッセージ用に、cellIdから人間が読めるラベルを求める。
-// ビルダー側のmappingCurrentName相当の情報はここでは持っていないため、簡易に
-// dbKey（項目名マッピング済みならそれ）→セル番地の順で表示する。
+// 未入力チェック・一覧表の列見出し等で、cellIdから人間が読めるラベルを求める。
+// builder_app.jsのserializeStructure()と同じCoreLogic.findMappingTargets()を使い、
+// 「dbKey（項目名マッピング済みならそれ）→行見出し文字/列見出し文字（autoName）→
+// セル番地」の順でフォールバックする。以前はautoNameを見ていなかったため、
+// 「1行1見出し1値」のようなdbKey未設定の項目がE5等の生セル番地でしか表示できなかった
+// （行の見出し文字「部署名」等が本来使えたはずだった、という既知の手抜き実装）。
 function labelForCellId(id) {
+  const { singles } = CoreLogic.findMappingTargets(STATE.grid, STATE.sections, STATE.maxCol, STATE.manualGroups);
+  const target = singles.find(t => CoreLogic.cellId(t.cells[0]) === id);
+  if (target) return target.cells[0].dbKey || target.autoName || CoreLogic.cellRef(target.cells[0]);
   for (const info of STATE.grid.values()) {
     if (CoreLogic.cellId(info) === id) return info.dbKey || CoreLogic.cellRef(info);
   }
