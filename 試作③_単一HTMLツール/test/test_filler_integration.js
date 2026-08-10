@@ -122,6 +122,11 @@ function newFillerPage(structure) {
         <button id="btn-close-review">close</button>
       </div>
       <div id="review-col-toggle"></div>
+      <select id="review-status-select">
+        <option value="all">all</option>
+        <option value="undone">undone</option>
+        <option value="done">done</option>
+      </select>
       <div id="review-summary"></div>
       <div id="review-table-root"></div>
     </div>
@@ -659,6 +664,105 @@ function buildSampleData(dom, values) {
       input.dispatchEvent(new win.Event('change'));
       await waitFor(() => win.__app.REVIEW.records.length === 1);
       assertEqual(win.__app.REVIEW.records[0].fileName, 'a.json');
+    });
+  });
+
+  await runSuiteAsync('filler_app: 一覧の絞り込み（Excel風フィルタ・ステータス）', async () => {
+    // 3件（部署A×2・部署B×1、うち1件はレビュー欄記入済み＝完了）を読み込んだ状態を作る共通処理。
+    async function setupThreeRecords() {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
+      structure.reviewFields = [c4id];
+      structure.displayCandidateFields = [c3id];
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const dataA1 = buildSampleData(dom, { [c3id]: '部署A', [c4id]: '' });
+      const dataA2 = buildSampleData(dom, { [c3id]: '部署A', [c4id]: '' });
+      const dataB1 = buildSampleData(dom, { [c3id]: '部署B', [c4id]: '' });
+      win.__app.upsertRecords([
+        { fileName: 'a1.json', data: dataA1 },
+        { fileName: 'a2.json', data: dataA2 },
+        { fileName: 'b1.json', data: dataB1 },
+      ]);
+      win.__app.REVIEW.records.find(r => r.fileName === 'a1.json').reviewValues[c4id] = '判定済み';
+      win.__app.enterReviewMode();
+      return { win, c3id, c4id };
+    }
+
+    await testAsync('絞り込みなし（初期状態）では全件が表示される', async () => {
+      const { win } = await setupThreeRecords();
+      const rows = win.document.querySelectorAll('#review-tbody tr');
+      assertEqual(rows.length, 3);
+      assertEqual(win.document.getElementById('review-summary').textContent, '3件中 1件 レビュー完了');
+    });
+
+    await testAsync('列フィルタ：ある値のチェックを外すと、その値を持つ行だけ一覧から消える（他の値は残る）', async () => {
+      const { win, c3id } = await setupThreeRecords();
+      const cb = [...win.document.querySelectorAll('.col-filter-panel label')]
+        .find(l => l.textContent === '部署A').querySelector('input');
+      cb.checked = false;
+      cb.dispatchEvent(new win.Event('change'));
+
+      const rows = win.document.querySelectorAll('#review-tbody tr');
+      assertEqual(rows.length, 1, '部署Aの2件が絞り込まれ、部署Bの1件だけ残るはず');
+      assertTrue(rows[0].textContent.includes('部署B'));
+      assertTrue(win.document.getElementById('review-summary').textContent.includes('絞り込み中'));
+    });
+
+    await testAsync('列フィルタのチェック変更では、thead（<details>の開閉状態含む）は再描画されない', async () => {
+      const { win } = await setupThreeRecords();
+      const details = win.document.querySelector('.col-filter');
+      details.setAttribute('open', 'open');
+      const cb = details.querySelector('input');
+      cb.checked = false;
+      cb.dispatchEvent(new win.Event('change'));
+      assertTrue(win.document.querySelector('.col-filter').hasAttribute('open'), 'tbodyだけの再描画なら<details>のopen状態は保たれるはず');
+    });
+
+    await testAsync('ステータス絞り込み：「完了」を選ぶとレビュー欄が埋まっている行だけ表示される', async () => {
+      const { win } = await setupThreeRecords();
+      const select = win.document.getElementById('review-status-select');
+      select.value = 'done';
+      select.dispatchEvent(new win.Event('change'));
+      const rows = win.document.querySelectorAll('#review-tbody tr');
+      assertEqual(rows.length, 1);
+      assertTrue(rows[0].textContent.includes('部署A'));
+    });
+
+    await testAsync('ステータス絞り込み：「未完了」を選ぶとレビュー欄が空欄の行だけ表示される', async () => {
+      const { win } = await setupThreeRecords();
+      const select = win.document.getElementById('review-status-select');
+      select.value = 'undone';
+      select.dispatchEvent(new win.Event('change'));
+      const rows = win.document.querySelectorAll('#review-tbody tr');
+      assertEqual(rows.length, 2);
+    });
+
+    await testAsync('列フィルタとステータス絞り込みはAND条件で組み合わさる', async () => {
+      const { win } = await setupThreeRecords();
+      const cb = [...win.document.querySelectorAll('.col-filter-panel label')]
+        .find(l => l.textContent === '部署B').querySelector('input');
+      cb.checked = false;
+      cb.dispatchEvent(new win.Event('change')); // 部署Aの2件（1完了・1未完了）だけに絞る
+
+      const select = win.document.getElementById('review-status-select');
+      select.value = 'done';
+      select.dispatchEvent(new win.Event('change'));
+
+      const rows = win.document.querySelectorAll('#review-tbody tr');
+      assertEqual(rows.length, 1, '部署A かつ 完了、の1件だけになるはず');
+    });
+
+    await testAsync('列の表示を非表示に切り替えると、その列のフィルタは無視される（再表示前提の絞り込みは効かない）', async () => {
+      const { win, c3id } = await setupThreeRecords();
+      const cb = [...win.document.querySelectorAll('.col-filter-panel label')]
+        .find(l => l.textContent === '部署A').querySelector('input');
+      cb.checked = false;
+      cb.dispatchEvent(new win.Event('change'));
+      assertEqual(win.document.querySelectorAll('#review-tbody tr').length, 1, '絞り込みが効いている前提の確認');
+
+      win.document.getElementById('colvis_' + c3id).click(); // 列を非表示化（renderReviewTableが全体再描画）
+      assertEqual(win.document.querySelectorAll('#review-tbody tr').length, 3, '列を隠すとその列のフィルタは無視され全件表示に戻るはず');
     });
   });
 

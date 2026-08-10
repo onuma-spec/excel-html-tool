@@ -61,11 +61,22 @@
   #review-actions{display:flex; gap:10px; margin:10px 0; flex-wrap:wrap; align-items:center;}
   #review-col-toggle{display:flex; flex-wrap:wrap; gap:6px 14px; margin:10px 0; padding:8px 10px; background:var(--card); border:1px solid var(--line); border-radius:6px; font-size:.78rem;}
   #review-col-toggle label{display:flex; align-items:center; gap:4px; cursor:pointer; white-space:nowrap;}
+  #review-status-filter{font-size:.78rem; margin:8px 0;}
+  #review-status-filter select{font-family:inherit; font-size:.8rem; padding:2px 4px;}
   #review-summary{font-size:.82rem; color:var(--sub); margin:8px 0;}
   #review-table-root{overflow-x:auto;}
   table.review-table{border-collapse:collapse; width:100%; font-size:.8rem; background:var(--card);}
   table.review-table th, table.review-table td{border:1px solid var(--line); padding:5px 7px; text-align:left; vertical-align:top;}
-  table.review-table th{background:#eeeae0; white-space:nowrap;}
+  table.review-table th{background:#eeeae0; white-space:nowrap; position:relative;}
+  .col-filter{display:inline-block; font-weight:normal;}
+  .col-filter summary{cursor:pointer; list-style:none; display:inline-block; padding:0 2px;}
+  .col-filter summary::-webkit-details-marker{display:none;}
+  .col-filter-panel{
+    position:absolute; z-index:10; top:100%; left:0; margin-top:2px; min-width:140px; max-height:220px;
+    overflow:auto; background:#fff; border:1px solid var(--line); border-radius:4px; padding:6px 8px;
+    box-shadow:0 2px 6px rgba(0,0,0,.15); font-size:.76rem;
+  }
+  .col-filter-panel label{display:flex; align-items:center; gap:4px; white-space:nowrap; padding:2px 0; cursor:pointer;}
   table.review-table td.review-status-done{color:var(--accent); font-weight:bold;}
   table.review-table textarea{width:100%; min-width:120px; font-family:inherit; font-size:.8rem; box-sizing:border-box;}
   #review-detail-root-wrap{margin-top:10px;}
@@ -123,6 +134,15 @@
     </div>
     <p class="hint no-print">共有フォルダ（提出用サーバー等）を直接指定できるのはEdge・Chromeのみです。それ以外のブラウザでは、ローカルの専用フォルダにJSONを集めておき、都度「JSONファイルを選ぶ」で選び直してください。</p>
     <div id="review-col-toggle" class="no-print"></div>
+    <div id="review-status-filter" class="no-print">
+      <label>状態で絞り込み：
+        <select id="review-status-select">
+          <option value="all">すべて</option>
+          <option value="undone">未完了</option>
+          <option value="done">完了</option>
+        </select>
+      </label>
+    </div>
     <div id="review-summary" class="no-print"></div>
     <div id="review-table-root"></div>
   </div>

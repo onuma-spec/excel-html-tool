@@ -186,7 +186,9 @@ function readFileAsText(file) {
 // records: [{ fileName, data(読み込んだ生JSON), displayValues({cellId:value}), reviewValues({cellId:value}) }]
 // visibleCols: 一覧表に列として表示するdisplayCandidateFieldsの部分集合（初期値は全件表示）。
 // dirHandle: showDirectoryPicker()で選んだFileSystemDirectoryHandle（Chromium限定）。
-const REVIEW = { records: [], visibleCols: new Set(), dirHandle: null };
+// colFilters: Map<cellId, Set<選択中の値>>（Excel風のオートフィルタ。未操作の列はエントリ無し＝絞り込みなし）。
+// statusFilter: 'all'|'done'|'undone'（レビュー欄が全て埋まっているかによる絞り込み）。
+const REVIEW = { records: [], visibleCols: new Set(), dirHandle: null, colFilters: new Map(), statusFilter: 'all' };
 
 // 詳細画面（openReviewDetail）で現在編集中のレコード・グリッド状態。
 // 全セル誰でも編集可能という方針のため、詳細画面は所管部署の入力を閲覧するだけでなく
@@ -294,30 +296,124 @@ function renderColToggle() {
   });
 }
 
+function currentVisibleColIds() {
+  return (STRUCTURE.displayCandidateFields || []).filter(id => REVIEW.visibleCols.has(id));
+}
+
+// 今読み込まれている全レコードから、その列（表示中の識別列）が実際に取りうる値の
+// 一覧を重複なく求める（Excelのオートフィルタのドロップダウン一覧と同じ考え方）。
+function uniqueColumnValues(id) {
+  const set = new Set();
+  REVIEW.records.forEach(r => set.add(r.displayValues[id] || ''));
+  return Array.from(set).sort((a, b) => String(a).localeCompare(String(b), 'ja'));
+}
+
+// 列フィルタ（REVIEW.colFilters: Map<cellId, Set<選択中の値>>）とステータス絞り込み
+// （REVIEW.statusFilter）の両方を満たすレコードだけを返す。列フィルタは複数列に
+// またがる場合AND条件（Excelと同じ）。非表示列のフィルタは無視する（列を隠したら
+// その列による絞り込みも見えなくなるため、直感に反しないようにする）。
+function matchesColFilters(record) {
+  for (const id of currentVisibleColIds()) {
+    const allowed = REVIEW.colFilters.get(id);
+    if (!allowed) continue; // このセッションでまだ操作されていない列＝絞り込みなし
+    if (!allowed.has(record.displayValues[id] || '')) return false;
+  }
+  return true;
+}
+
+function matchesStatusFilter(record) {
+  if (REVIEW.statusFilter === 'done') return isRecordComplete(record);
+  if (REVIEW.statusFilter === 'undone') return !isRecordComplete(record);
+  return true;
+}
+
+function filteredRecords() {
+  return REVIEW.records.filter(r => matchesColFilters(r) && matchesStatusFilter(r));
+}
+
+function hasActiveFilters() {
+  return REVIEW.colFilters.size > 0 || REVIEW.statusFilter !== 'all';
+}
+
+function updateReviewSummary(filtered) {
+  const summaryRoot = $('#review-summary');
+  const doneCount = filtered.filter(isRecordComplete).length;
+  const base = `${filtered.length}件中 ${doneCount}件 レビュー完了`;
+  summaryRoot.textContent = hasActiveFilters() ? `${base}（絞り込み中・全${REVIEW.records.length}件）` : base;
+}
+
+// 列見出しの▼（Excel風のオートフィルタ）。<details>を使うことで開閉状態の管理・
+// 外側クリックでの自動close処理を独自に書かずに済ませる（ネイティブ挙動に委ねる）。
+// チェック変更時はrenderReviewTable()（thead含む全体再描画）ではなくrenderReviewBody()
+// （tbodyのみ再描画）だけを呼ぶ：thead全体を再描画すると<details>が毎回閉じてしまい、
+// 複数の値を続けてチェック/解除する操作が成立しなくなるため。
+function buildColFilterDetails(id) {
+  const values = uniqueColumnValues(id);
+  const details = el('details', { class: 'col-filter' });
+  details.appendChild(el('summary', { text: '▼', title: '値で絞り込む' }));
+  const panel = el('div', { class: 'col-filter-panel' });
+  values.forEach((v) => {
+    const inputId = 'colfilter_' + id + '_' + values.indexOf(v);
+    const checkbox = el('input', { type: 'checkbox', id: inputId });
+    const currentAllowed = REVIEW.colFilters.get(id);
+    if (!currentAllowed || currentAllowed.has(v)) checkbox.setAttribute('checked', 'checked');
+    checkbox.addEventListener('change', () => {
+      const allowed = new Set(REVIEW.colFilters.get(id) || values);
+      if (checkbox.checked) allowed.add(v); else allowed.delete(v);
+      REVIEW.colFilters.set(id, allowed);
+      renderReviewBody();
+    });
+    panel.appendChild(el('label', {}, [checkbox, document.createTextNode(v === '' ? '（空欄）' : v)]));
+  });
+  details.appendChild(panel);
+  return details;
+}
+
 function renderReviewTable() {
   const tableRoot = $('#review-table-root');
   tableRoot.innerHTML = '';
-  const summaryRoot = $('#review-summary');
-  const doneCount = REVIEW.records.filter(isRecordComplete).length;
-  summaryRoot.textContent = `${REVIEW.records.length}件中 ${doneCount}件 レビュー完了`;
 
-  if (REVIEW.records.length === 0) return;
+  if (REVIEW.records.length === 0) {
+    updateReviewSummary([]);
+    return;
+  }
 
-  const visibleColIds = (STRUCTURE.displayCandidateFields || []).filter(id => REVIEW.visibleCols.has(id));
+  const visibleColIds = currentVisibleColIds();
   const reviewFieldIds = STRUCTURE.reviewFields || [];
 
   const table = el('table', { class: 'review-table' });
   const thead = el('thead');
   const headRow = el('tr');
-  visibleColIds.forEach(id => headRow.appendChild(el('th', { text: labelForCellId(id) })));
+  visibleColIds.forEach((id) => {
+    const th = el('th');
+    th.appendChild(document.createTextNode(labelForCellId(id) + ' '));
+    th.appendChild(buildColFilterDetails(id));
+    headRow.appendChild(th);
+  });
   reviewFieldIds.forEach(id => headRow.appendChild(el('th', { text: labelForCellId(id) })));
   headRow.appendChild(el('th', { text: '状態' }));
   headRow.appendChild(el('th', { text: '' }));
   thead.appendChild(headRow);
   table.appendChild(thead);
 
-  const tbody = el('tbody');
-  REVIEW.records.forEach((record) => {
+  const tbody = el('tbody', { id: 'review-tbody' });
+  table.appendChild(tbody);
+  tableRoot.appendChild(table);
+
+  renderReviewBody();
+}
+
+// tbodyだけを絞り込み結果で再描画する（theadは触らない。理由はbuildColFilterDetails参照）。
+function renderReviewBody() {
+  const tbody = document.getElementById('review-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  const visibleColIds = currentVisibleColIds();
+  const reviewFieldIds = STRUCTURE.reviewFields || [];
+  const filtered = filteredRecords();
+
+  filtered.forEach((record) => {
     const tr = el('tr');
     visibleColIds.forEach(id => tr.appendChild(el('td', { text: record.displayValues[id] || '' })));
     reviewFieldIds.forEach((id) => {
@@ -331,7 +427,7 @@ function renderReviewTable() {
           statusTd.textContent = complete ? '✅完了' : '未完了';
           statusTd.classList.toggle('review-status-done', complete);
         }
-        summaryRoot.textContent = `${REVIEW.records.length}件中 ${REVIEW.records.filter(isRecordComplete).length}件 レビュー完了`;
+        updateReviewSummary(filteredRecords());
       });
       const td = el('td'); td.appendChild(textarea);
       tr.appendChild(td);
@@ -357,8 +453,8 @@ function renderReviewTable() {
 
     tbody.appendChild(tr);
   });
-  table.appendChild(tbody);
-  tableRoot.appendChild(table);
+
+  updateReviewSummary(filtered);
 }
 
 function renderReviewList() {
@@ -499,6 +595,10 @@ function init() {
     handleReviewFileInput(ev.target.files);
     ev.target.value = '';
   });
+  $('#review-status-select').addEventListener('change', (ev) => {
+    REVIEW.statusFilter = ev.target.value;
+    renderReviewBody();
+  });
   $('#review-btn-pick-dir').addEventListener('click', pickReviewDirectory);
   $('#review-btn-refresh').addEventListener('click', scanReviewDirectory);
   $('#btn-pick-export-dir').addEventListener('click', pickExportDirectory);
@@ -550,6 +650,7 @@ if (typeof window !== 'undefined') {
     findMissingRequiredFields, labelForCellId,
     get REVIEW() { return REVIEW; },
     upsertRecords, extractFieldValues, mergedDataForExport, isRecordComplete,
+    filteredRecords, renderReviewBody,
     buildExportFileNameForRecord, renderReviewList, enterReviewMode, exitReviewMode,
     openReviewDetail, backToReviewListFromDetail, saveDetailAndBackToList, handleReviewFileInput,
     pickReviewDirectory, scanReviewDirectory,
