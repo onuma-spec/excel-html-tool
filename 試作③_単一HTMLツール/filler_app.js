@@ -188,6 +188,13 @@ function readFileAsText(file) {
 // dirHandle: showDirectoryPicker()で選んだFileSystemDirectoryHandle（Chromium限定）。
 const REVIEW = { records: [], visibleCols: new Set(), dirHandle: null };
 
+// 詳細画面（openReviewDetail）で現在編集中のレコード・グリッド状態。
+// 全セル誰でも編集可能という方針のため、詳細画面は所管部署の入力を閲覧するだけでなく
+// 一件ずつ入力する経路としても使う。保存時にDETAIL_STATEから値を読み出し、
+// DETAIL_RECORDへ書き戻す（破棄する場合は単に画面を閉じるだけでよい）。
+let DETAIL_RECORD = null;
+let DETAIL_STATE = null;
+
 // STRUCTURE.cells（同じ様式）を土台に、渡されたdataを読み込んだ「使い捨てのグリッド」を
 // #review-scratch-rootに描画→指定したcellIdの現在値を読み取る→片付ける、という
 // 一連の処理をまとめる。既存のrenderGrid/loadDataIntoGridをそのまま再利用することで、
@@ -383,16 +390,38 @@ function exitReviewMode() {
   showScreen('normal');
 }
 
+// 詳細画面は「所管部署の入力を閲覧するだけ」ではなく、通常グリッド画面と同じく
+// 全セル編集可能にする（全セル誰でも入力できる、という方針）。1件ずつ入力したい
+// レビュアー向けの経路として、一覧表のインライン編集と並ぶ選択肢になる。
 function openReviewDetail(record) {
-  const detailState = buildStateFromStructure(STRUCTURE);
-  GridRender.renderGrid($('#review-detail-root'), detailState, { showGear: false, readonly: true, reviewFieldIds: reviewFieldIdSet() });
-  GridRender.loadDataIntoGrid(detailState, record.data || {});
+  DETAIL_RECORD = record;
+  DETAIL_STATE = buildStateFromStructure(STRUCTURE);
+  GridRender.renderGrid($('#review-detail-root'), DETAIL_STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
+  GridRender.loadDataIntoGrid(DETAIL_STATE, record.data || {});
   showScreen('detail');
 }
 
+// 詳細画面での編集を破棄して一覧に戻る（保存しない）。
 function backToReviewListFromDetail() {
   $('#review-detail-root').innerHTML = '';
+  DETAIL_RECORD = null;
+  DETAIL_STATE = null;
   showScreen('list');
+}
+
+// 詳細画面での編集内容を、対象レコードのdata/displayValues/reviewValuesへ書き戻し、
+// 一覧を再描画してから一覧画面に戻る。書き戻すのはレビュー欄だけでなく全項目
+// （所管部署欄も含む）で、詳細画面で行った変更はすべて反映される。
+function saveDetailAndBackToList() {
+  if (!DETAIL_RECORD || !DETAIL_STATE) return;
+  const record = DETAIL_RECORD;
+  const merged = GridRender.collectData(DETAIL_STATE);
+  record.data = merged;
+  record.displayValues = extractFieldValues(merged, STRUCTURE.displayCandidateFields || []);
+  record.reviewValues = extractFieldValues(merged, STRUCTURE.reviewFields || []);
+  backToReviewListFromDetail();
+  renderReviewList();
+  $('#status').textContent = `「${record.fileName}」の内容を保存しました。`;
 }
 
 // Chromium限定：フォルダを1回指定→以後「更新」ボタンで都度読み直せるようにする。
@@ -463,6 +492,7 @@ function init() {
   $('#btn-open-review').addEventListener('click', enterReviewMode);
   $('#btn-close-review').addEventListener('click', exitReviewMode);
   $('#btn-back-to-review-list').addEventListener('click', backToReviewListFromDetail);
+  $('#btn-save-detail').addEventListener('click', saveDetailAndBackToList);
   $('#review-file-load').addEventListener('change', (ev) => {
     handleReviewFileInput(ev.target.files);
     ev.target.value = '';
@@ -519,7 +549,7 @@ if (typeof window !== 'undefined') {
     get REVIEW() { return REVIEW; },
     upsertRecords, extractFieldValues, mergedDataForExport, isRecordComplete,
     buildExportFileNameForRecord, renderReviewList, enterReviewMode, exitReviewMode,
-    openReviewDetail, backToReviewListFromDetail, handleReviewFileInput,
+    openReviewDetail, backToReviewListFromDetail, saveDetailAndBackToList, handleReviewFileInput,
     pickReviewDirectory, scanReviewDirectory,
     saveBlob, pickExportDirectory,
     get EXPORT_DIR_HANDLE() { return EXPORT_DIR_HANDLE; },

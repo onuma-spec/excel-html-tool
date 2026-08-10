@@ -125,6 +125,7 @@ function newFillerPage(structure) {
       <div id="review-table-root"></div>
     </div>
     <div id="review-detail-root-wrap" style="display:none">
+      <button id="btn-save-detail">save</button>
       <button id="btn-back-to-review-list">back</button>
       <div id="review-detail-root"></div>
     </div>
@@ -513,7 +514,7 @@ function buildSampleData(dom, values) {
       assertEqual(bodyRowCells, afterCount, 'ヘッダーと行のセル数は一致するはず');
     });
 
-    await testAsync('詳細画面は読み取り専用で所管部署の入力内容を表示し、一覧に戻ると復元される', async () => {
+    await testAsync('詳細画面は所管部署の入力内容を表示し、編集可能（全セル誰でも入力できる方針のため読み取り専用ではない）', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
       structure.reviewFields = [c4id];
@@ -530,11 +531,47 @@ function buildSampleData(dom, values) {
       const detailInput = win.document.getElementById(c3id);
       assertTrue(!!detailInput, '詳細画面にも同じcellIdの入力欄が描画されるはず');
       assertEqual(detailInput.value, '事業A');
-      assertTrue(detailInput.disabled, '詳細画面は読み取り専用（disabled）のはず');
+      assertFalse(detailInput.disabled, '全セル編集可能の方針のため、詳細画面もdisabledではないはず');
+    });
+
+    await testAsync('詳細画面で保存せずに戻ると（backToReviewListFromDetail）、レコードの内容は変更されない', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
+      structure.reviewFields = [c4id];
+      structure.displayCandidateFields = [c3id];
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
+      win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
+      win.__app.openReviewDetail(win.__app.REVIEW.records[0]);
+      win.document.getElementById(c3id).value = '編集したが保存しない';
 
       win.__app.backToReviewListFromDetail();
       assertEqual(win.document.getElementById('review-detail-root').innerHTML, '');
       assertEqual(win.document.getElementById('review-root').style.display, '');
+      assertEqual(win.__app.REVIEW.records[0].displayValues[c3id], '事業A', '保存しなかったので元の値のまま残るはず');
+    });
+
+    await testAsync('詳細画面で編集して保存すると（saveDetailAndBackToList）、record.data/displayValues/reviewValuesに反映される', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
+      structure.reviewFields = [c4id];
+      structure.displayCandidateFields = [c3id];
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
+      win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
+      win.__app.openReviewDetail(win.__app.REVIEW.records[0]);
+      win.document.getElementById(c3id).value = '事業A（詳細画面で修正）';
+      win.document.getElementById(c4id).value = '詳細画面から入力したレビュー結果';
+
+      win.__app.saveDetailAndBackToList();
+      assertEqual(win.document.getElementById('review-detail-root-wrap').style.display, 'none', '保存後は一覧画面に戻るはず');
+      const record = win.__app.REVIEW.records[0];
+      assertEqual(record.displayValues[c3id], '事業A（詳細画面で修正）');
+      assertEqual(record.reviewValues[c4id], '詳細画面から入力したレビュー結果');
+      assertEqual(record.data['シート']['申込日']['col3'], '事業A（詳細画面で修正）', 'record.data自体も更新されるはず');
+      assertTrue(win.document.getElementById('status').textContent.includes('保存しました'));
     });
 
     await testAsync('レビュー画面を閉じると、通常の入力グリッドが再描画される', async () => {

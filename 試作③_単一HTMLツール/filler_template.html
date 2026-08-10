@@ -69,6 +69,7 @@
   table.review-table td.review-status-done{color:var(--accent); font-weight:bold;}
   table.review-table textarea{width:100%; min-width:120px; font-family:inherit; font-size:.8rem; box-sizing:border-box;}
   #review-detail-root-wrap{margin-top:10px;}
+  #review-detail-actions{display:flex; gap:10px; margin:10px 0; flex-wrap:wrap; align-items:center;}
 </style>
 </head>
 <body>
@@ -118,8 +119,11 @@
   </div>
 
   <div id="review-detail-root-wrap" style="display:none">
-    <button class="secondary" id="btn-back-to-review-list">← 一覧に戻る</button>
-    <p class="hint">閲覧専用です（所管部署が入力した内容の確認用）。</p>
+    <div id="review-detail-actions">
+      <button id="btn-save-detail">💾 保存して一覧に戻る</button>
+      <button class="secondary" id="btn-back-to-review-list">← 保存せずに一覧に戻る</button>
+    </div>
+    <p class="hint">この画面でもすべてのセルに入力・修正できます。色分けは1次／2次以降どちらの入力欄かの目安です。</p>
     <div id="review-detail-root"></div>
   </div>
 
