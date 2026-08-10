@@ -112,6 +112,7 @@ function newFillerPage(structure) {
     <div id="status"></div>
     <div id="grid-root"></div>
     <p id="grid-hint"></p>
+    <p id="field-legend" style="display:none"></p>
     <div id="review-root" style="display:none">
       <div id="review-actions">
         <input type="file" id="review-file-load" multiple>
@@ -284,6 +285,58 @@ function buildSampleData(dom, values) {
     });
   });
 
+  await runSuiteAsync('filler_app: 1次/2次入力欄の視覚的色分け', async () => {
+    await testAsync('reviewFields未指定なら、どの入力セルにも色分けクラスが付かない', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const tds = win.document.querySelectorAll('#grid-root td.cell-input');
+      assertTrue(tds.length > 0);
+      tds.forEach(td => {
+        assertFalse(td.classList.contains('cell-field-primary'));
+        assertFalse(td.classList.contains('cell-field-review'));
+      });
+    });
+
+    await testAsync('reviewFields指定時、レビュー欄のセルはcell-field-review、それ以外の入力セルはcell-field-primaryになる', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const c4id = 'cell_R3_C4';
+      structure.reviewFields = [c4id];
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const reviewTd = win.document.getElementById(c4id).closest('td');
+      assertTrue(reviewTd.classList.contains('cell-field-review'));
+      assertFalse(reviewTd.classList.contains('cell-field-primary'));
+
+      const c3id = 'cell_R3_C3';
+      const primaryTd = win.document.getElementById(c3id).closest('td');
+      assertTrue(primaryTd.classList.contains('cell-field-primary'));
+      assertFalse(primaryTd.classList.contains('cell-field-review'));
+    });
+
+    await testAsync('reviewFields指定時、凡例（#field-legend）が表示される。未指定なら非表示のまま', async () => {
+      const withReview = await readyPage((() => { const s = buildStructureFromFixture(FIXTURE); s.reviewFields = ['cell_R3_C4']; return s; })());
+      assertEqual(withReview.window.document.getElementById('field-legend').style.display, '');
+
+      const withoutReview = await readyPage(buildStructureFromFixture(FIXTURE));
+      assertEqual(withoutReview.window.document.getElementById('field-legend').style.display, 'none');
+    });
+
+    await testAsync('レビュー詳細画面（openReviewDetail）でも同じ色分けが適用される', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
+      structure.reviewFields = [c4id];
+      structure.displayCandidateFields = [c3id];
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
+      win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
+      win.__app.openReviewDetail(win.__app.REVIEW.records[0]);
+      const reviewTd = win.document.getElementById(c4id).closest('td');
+      assertTrue(reviewTd.classList.contains('cell-field-review'), '詳細画面でもレビュー欄セルにcell-field-reviewが付くはず');
+    });
+  });
+
   await runSuiteAsync('filler_app: 貼り付け', async () => {
     await testAsync('setupPasteHandlerが有効になっており、タブ区切りの貼り付けで複数セルが埋まる', async () => {
       // 貼り付けハンドラはタブ/改行を含まない単一値は無視する設計
@@ -360,14 +413,14 @@ function buildSampleData(dom, values) {
   });
 
   await runSuiteAsync('filler_app: レビュー画面（複数JSON読込・一覧表・詳細）', async () => {
-    await testAsync('レビュー欄が指定されていれば「複数の入力結果をレビューする」ボタンが表示される', async () => {
+    await testAsync('レビュー欄が指定されていれば「2次以降用一括入力画面へ移動する」ボタンが表示される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       structure.reviewFields = ['cell_R3_C3'];
       const dom = await readyPage(structure);
       assertEqual(dom.window.document.getElementById('btn-open-review').style.display, '');
     });
 
-    await testAsync('レビュー欄が無指定なら「複数の入力結果をレビューする」ボタンは表示されない', async () => {
+    await testAsync('レビュー欄が無指定なら「2次以降用一括入力画面へ移動する」ボタンは表示されない', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const dom = await readyPage(structure);
       assertEqual(dom.window.document.getElementById('btn-open-review').style.display, 'none');

@@ -104,6 +104,11 @@ async function pickExportDirectory() {
   $('#export-dir-status').textContent = `書き出し先：${EXPORT_DIR_HANDLE.name}（以後このフォームのJSONはここへ直接保存されます）`;
 }
 
+// 通常グリッド・詳細画面のどちらでも同じ「1次/2次以降」の色分けを使うための共通Set。
+function reviewFieldIdSet() {
+  return new Set(STRUCTURE.reviewFields || []);
+}
+
 function buildStateFromStructure(structure) {
   const grid = new Map();
   structure.cells.forEach(c => {
@@ -374,13 +379,13 @@ function enterReviewMode() {
 
 function exitReviewMode() {
   $('#review-detail-root').innerHTML = '';
-  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false });
+  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
   showScreen('normal');
 }
 
 function openReviewDetail(record) {
   const detailState = buildStateFromStructure(STRUCTURE);
-  GridRender.renderGrid($('#review-detail-root'), detailState, { showGear: false, readonly: true });
+  GridRender.renderGrid($('#review-detail-root'), detailState, { showGear: false, readonly: true, reviewFieldIds: reviewFieldIdSet() });
   GridRender.loadDataIntoGrid(detailState, record.data || {});
   showScreen('detail');
 }
@@ -437,12 +442,14 @@ async function handleReviewFileInput(fileList) {
 
 function init() {
   STATE = buildStateFromStructure(STRUCTURE);
-  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false });
+  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
   REVIEW.visibleCols = new Set(STRUCTURE.displayCandidateFields || []);
 
   // レビュー欄が1つも指定されていない様式では、レビュー画面自体を提供しない。
+  // 色分けの凡例も同じ条件で出し分ける（区別する意味が無いため）。
   if ((STRUCTURE.reviewFields || []).length > 0) {
     $('#btn-open-review').style.display = '';
+    $('#field-legend').style.display = '';
   }
   if (window.showDirectoryPicker) {
     $('#review-btn-pick-dir').style.display = '';

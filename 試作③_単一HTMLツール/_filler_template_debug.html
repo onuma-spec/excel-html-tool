@@ -51,6 +51,12 @@
   td.cell-input input:disabled, td.cell-input textarea:disabled, td.cell-input select:disabled{
     color:#6b6a63; background:#f2f1ec; cursor:not-allowed;
   }
+  td.cell-input.cell-field-primary{background:#eef6f1;}
+  td.cell-input.cell-field-review{background:#fdf3e6;}
+  .legend-item{display:inline-flex; align-items:center; gap:4px; margin-right:16px;}
+  .legend-swatch{display:inline-block; width:12px; height:12px; border:1px solid #b9b2a0; border-radius:2px;}
+  .legend-swatch-primary{background:#eef6f1;}
+  .legend-swatch-review{background:#fdf3e6;}
 
   #review-actions{display:flex; gap:10px; margin:10px 0; flex-wrap:wrap; align-items:center;}
   #review-col-toggle{display:flex; flex-wrap:wrap; gap:6px 14px; margin:10px 0; padding:8px 10px; background:var(--card); border:1px solid var(--line); border-radius:6px; font-size:.78rem;}
@@ -82,12 +88,16 @@
     <button id="btn-export">📋 入力内容をJSONで書き出す</button>
     <button class="secondary" onclick="document.getElementById('file-load-json').click()">📂 保存済みJSONを読み込む</button>
     <input type="file" id="file-load-json" accept="application/json" style="display:none">
-    <button class="secondary" id="btn-open-review" style="display:none">📑 複数の入力結果をレビューする</button>
+    <button class="secondary" id="btn-open-review" style="display:none">📑 2次以降用一括入力画面へ移動する</button>
   </div>
   <div id="status"></div>
 
   <div id="grid-root"></div>
   <p class="hint" id="grid-hint">※ 見出し（灰色）・「（自動計算）」のセルは入力対象外です。空欄セルに直接入力してください。</p>
+  <p class="hint" id="field-legend" style="display:none">
+    <span class="legend-item"><span class="legend-swatch legend-swatch-primary"></span>1次入力欄</span>
+    <span class="legend-item"><span class="legend-swatch legend-swatch-review"></span>2次以降入力欄（レビュー欄。どのセルも入力は自由ですが、色は入力担当の目安です）</span>
+  </p>
 
   <div id="review-root" style="display:none">
     <p class="lead">
@@ -872,6 +882,9 @@ function buildInputControl(info, rowspan, colspan) {
  * opts.selected（Set<'row,col'>）を渡すと該当セルに .cell-selected を付ける。
  * opts.readonly=true のとき、全ての入力欄（input/textarea/select）にdisabledを付ける
  * （レビュー画面で所管部署の入力内容を閲覧専用で表示する用途）。
+ * opts.reviewFieldIds（Set<cellId>）を渡すと、入力セルごとに「1次入力欄」
+ * （cell-field-primary）／「2次以降入力欄」（cell-field-review）のクラスを付ける
+ * （STRUCTURE.reviewFieldsが1件も無い様式では区別する意味が無いため、Setが空なら何も付けない）。
  * 戻り値：このグリッドに含まれる数式セルのinfo配列（再計算対象として呼び出し元が保持する）。
  */
 function renderGrid(rootEl, state, opts) {
@@ -957,6 +970,9 @@ function renderGrid(rootEl, state, opts) {
         // renderType別に別々の分岐を持たず、描画後に一律disabledを付けるだけにする
         // （buildInputControl側に手を入れると通常モードとの分岐が増えて事故りやすいため）。
         if (opts.readonly) inputEl.setAttribute('disabled', 'disabled');
+        if (opts.reviewFieldIds && opts.reviewFieldIds.size > 0) {
+          td.classList.add(opts.reviewFieldIds.has(CoreLogic.cellId(info)) ? 'cell-field-review' : 'cell-field-primary');
+        }
         td.appendChild(inputEl);
       }
       if (opts.selected && opts.selected.has(cellKey)) td.classList.add('cell-selected');
@@ -1344,6 +1360,11 @@ async function pickExportDirectory() {
   $('#export-dir-status').textContent = `書き出し先：${EXPORT_DIR_HANDLE.name}（以後このフォームのJSONはここへ直接保存されます）`;
 }
 
+// 通常グリッド・詳細画面のどちらでも同じ「1次/2次以降」の色分けを使うための共通Set。
+function reviewFieldIdSet() {
+  return new Set(STRUCTURE.reviewFields || []);
+}
+
 function buildStateFromStructure(structure) {
   const grid = new Map();
   structure.cells.forEach(c => {
@@ -1614,13 +1635,13 @@ function enterReviewMode() {
 
 function exitReviewMode() {
   $('#review-detail-root').innerHTML = '';
-  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false });
+  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
   showScreen('normal');
 }
 
 function openReviewDetail(record) {
   const detailState = buildStateFromStructure(STRUCTURE);
-  GridRender.renderGrid($('#review-detail-root'), detailState, { showGear: false, readonly: true });
+  GridRender.renderGrid($('#review-detail-root'), detailState, { showGear: false, readonly: true, reviewFieldIds: reviewFieldIdSet() });
   GridRender.loadDataIntoGrid(detailState, record.data || {});
   showScreen('detail');
 }
@@ -1677,12 +1698,14 @@ async function handleReviewFileInput(fileList) {
 
 function init() {
   STATE = buildStateFromStructure(STRUCTURE);
-  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false });
+  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
   REVIEW.visibleCols = new Set(STRUCTURE.displayCandidateFields || []);
 
   // レビュー欄が1つも指定されていない様式では、レビュー画面自体を提供しない。
+  // 色分けの凡例も同じ条件で出し分ける（区別する意味が無いため）。
   if ((STRUCTURE.reviewFields || []).length > 0) {
     $('#btn-open-review').style.display = '';
+    $('#field-legend').style.display = '';
   }
   if (window.showDirectoryPicker) {
     $('#review-btn-pick-dir').style.display = '';

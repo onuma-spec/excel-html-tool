@@ -65,6 +65,9 @@ function buildInputControl(info, rowspan, colspan) {
  * opts.selected（Set<'row,col'>）を渡すと該当セルに .cell-selected を付ける。
  * opts.readonly=true のとき、全ての入力欄（input/textarea/select）にdisabledを付ける
  * （レビュー画面で所管部署の入力内容を閲覧専用で表示する用途）。
+ * opts.reviewFieldIds（Set<cellId>）を渡すと、入力セルごとに「1次入力欄」
+ * （cell-field-primary）／「2次以降入力欄」（cell-field-review）のクラスを付ける
+ * （STRUCTURE.reviewFieldsが1件も無い様式では区別する意味が無いため、Setが空なら何も付けない）。
  * 戻り値：このグリッドに含まれる数式セルのinfo配列（再計算対象として呼び出し元が保持する）。
  */
 function renderGrid(rootEl, state, opts) {
@@ -150,6 +153,9 @@ function renderGrid(rootEl, state, opts) {
         // renderType別に別々の分岐を持たず、描画後に一律disabledを付けるだけにする
         // （buildInputControl側に手を入れると通常モードとの分岐が増えて事故りやすいため）。
         if (opts.readonly) inputEl.setAttribute('disabled', 'disabled');
+        if (opts.reviewFieldIds && opts.reviewFieldIds.size > 0) {
+          td.classList.add(opts.reviewFieldIds.has(CoreLogic.cellId(info)) ? 'cell-field-review' : 'cell-field-primary');
+        }
         td.appendChild(inputEl);
       }
       if (opts.selected && opts.selected.has(cellKey)) td.classList.add('cell-selected');
