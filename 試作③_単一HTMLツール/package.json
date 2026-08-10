@@ -1,0 +1,12 @@
+{
+  "name": "gyosei-excel-form-tool-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "excel_form_builder.html / 入力フォームの回帰テストスイート（Node単体テスト。ブラウザ実機確認の代替ではない）",
+  "scripts": {
+    "test": "node test/run_all.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}

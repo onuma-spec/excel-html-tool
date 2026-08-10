@@ -1,0 +1,922 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>mock_template_kosai</title>
+<style>
+  :root{
+    --bg:#f7f5f0; --card:#ffffff; --ink:#2b2b28; --sub:#6b6b64;
+    --line:#c9c4b4; --accent:#3d6b52; --accent-bg:#e9f2ec;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:"Yu Gothic","Hiragino Sans","Meiryo",sans-serif;}
+  .wrap{max-width:1100px; margin:0 auto; padding:24px 16px 80px;}
+  h1{font-size:1.3rem; margin:0 0 6px;}
+  p.lead{color:var(--sub); font-size:.88rem; margin:0 0 20px; line-height:1.6;}
+  #status{font-size:.85rem; color:var(--accent); min-height:1.4em; margin-bottom:14px;}
+  #actions{display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center;}
+  button{
+    font-family:inherit; font-size:.88rem; padding:9px 16px; border-radius:6px; border:1px solid var(--accent);
+    background:var(--accent); color:#fff; cursor:pointer;
+  }
+  button.secondary{background:#fff; color:var(--accent);}
+  .hint{font-size:.78rem; color:var(--sub); margin-top:6px;}
+
+  #grid-root{overflow-x:auto; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px;}
+  table.excel-grid{border-collapse:collapse; table-layout:fixed;}
+  table.excel-grid td{border:1px solid #b9b2a0; padding:0; vertical-align:middle; overflow:hidden; position:relative;}
+  th.ruler-col, th.ruler-row-num, th.ruler-corner{
+    background:#dcd8cc; border:1px solid #b9b2a0; font-size:.7rem; font-weight:normal; color:#5a564a;
+    text-align:center; padding:2px; position:sticky; z-index:3;
+  }
+  th.ruler-col, th.ruler-corner{top:0;}
+  th.ruler-row-num, th.ruler-corner{left:0;}
+  th.ruler-corner{z-index:4;}
+  td.cell-label{background:#eeeae0; padding:3px 6px; font-size:.78rem; font-weight:bold; color:#333;}
+  td.cell-label span{display:block; white-space:pre-wrap; word-break:break-all;}
+  td.cell-calc{background:#f2e6ce; padding:3px 20px 3px 6px; font-size:.78rem; text-align:right; color:#7a5a20;}
+  td.cell-blocked{background:#f2f1ec;}
+  td.cell-input{background:#fff;}
+  td.cell-input input, td.cell-input textarea, td.cell-input select{
+    width:100%; height:100%; border:none; padding:3px 6px; font-size:.8rem; font-family:inherit;
+    background:transparent; resize:none;
+  }
+  td.cell-input input.input-number, td.cell-input input.input-currency{text-align:right;}
+  td.cell-input input:focus, td.cell-input textarea:focus, td.cell-input select:focus{
+    outline:2px solid var(--accent); outline-offset:-2px; background:#fffef8;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>mock_template_kosai</h1>
+  <p class="lead">
+    このフォームに入力し、「入力内容をJSONで書き出す」ボタンから結果を保存してください。<br>
+    通信は一切行いません（ブラウザの中だけで完結します）。保存したJSONファイルは庁内の共有ドライブ等でやり取りできます。
+  </p>
+
+  <div id="actions">
+    <button id="btn-export">📋 入力内容をJSONで書き出す</button>
+    <button class="secondary" onclick="document.getElementById('file-load-json').click()">📂 保存済みJSONを読み込む</button>
+    <input type="file" id="file-load-json" accept="application/json" style="display:none">
+  </div>
+  <div id="status"></div>
+
+  <div id="grid-root"></div>
+  <p class="hint">※ 見出し（灰色）・「（自動計算）」のセルは入力対象外です。空欄セルに直接入力してください。</p>
+</div>
+
+<script>
+// 事務事業評価データ公表支援ツール ①②のコア処理（ブラウザ・Node両方で動く共通ロジック）
+// 前提：ロック状態・データ入力規則は読めない（SheetJS無料版の制約、ユーザー承認済み）。
+// 「値の有無」「結合セル」「数式かどうか（cell.f）」だけで構造を判定する簡易版。
+
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) {
+    module.exports = factory();
+  } else {
+    root.CoreLogic = factory();
+  }
+})(typeof self !== 'undefined' ? self : this, function () {
+
+// ---------------------------------------------------------------------------
+// 1. 結合セルを解決した論理グリッドを作る
+// ---------------------------------------------------------------------------
+
+function colLetterToNum(letters) {
+  let n = 0;
+  for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n;
+}
+
+function parseRef(ref) {
+  const m = ref.match(/^([A-Z]+)(\d+)$/);
+  return { col: colLetterToNum(m[1]), row: parseInt(m[2], 10) };
+}
+
+function buildGrid(ws) {
+  const ref = ws['!ref'];
+  const range = XLSXUtilsDecodeRange(ref);
+  const merges = ws['!merges'] || [];
+
+  // (row,col) -> アンカー(row0,col0,row1,col1)
+  const anchorOf = new Map();
+  for (const m of merges) {
+    const r0 = m.s.r + 1, c0 = m.s.c + 1, r1 = m.e.r + 1, c1 = m.e.c + 1;
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        anchorOf.set(r + ',' + c, [r0, c0, r1, c1]);
+      }
+    }
+  }
+
+  const grid = new Map();
+  const infoCache = new Map();
+  for (let r = range.s.r + 1; r <= range.e.r + 1; r++) {
+    for (let c = range.s.c + 1; c <= range.e.c + 1; c++) {
+      const key = r + ',' + c;
+      const anchor = anchorOf.get(key);
+      const ar = anchor ? anchor[0] : r;
+      const ac = anchor ? anchor[1] : c;
+      const ar2 = anchor ? anchor[2] : r;
+      const ac2 = anchor ? anchor[3] : c;
+      const infoKey = ar + ',' + ac;
+      if (!infoCache.has(infoKey)) {
+        const addr = colNumToLetter(ac) + ar;
+        const cell = ws[addr];
+        const isFormula = !!(cell && cell.f);
+        const value = isFormula ? '' : (cell && cell.v !== undefined ? cell.v : '');
+        const formula = isFormula ? ('=' + cell.f) : '';
+        const hasFill = !!(cell && cell.s && cell.s.patternType);
+        const fillColor = (hasFill && cell.s.fgColor && cell.s.fgColor.rgb) ? cell.s.fgColor.rgb : null;
+        infoCache.set(infoKey, {
+          row: ar, col: ac, row2: ar2, col2: ac2,
+          value, isFormula, formula, hasFill, fillColor,
+          renderType: null, renderOptions: null,
+          // 項目名マッピング（B）：JSON出力時のキー名を「col11」等の自動名から
+          // 任意の名前に差し替える。未設定はnull（自動名のまま）。
+          dbKey: null,
+          // 手直しで「見出しの文字を空欄」に設定した結果としてのみtrueになる。
+          // 入力不可の空白セル（余白・仕切り）として描画され、構造上も
+          // 通常の空欄入力欄と同じ扱い（hasText=false）だが編集はできない。
+          blocked: false,
+          hasText: (typeof value === 'string' && value.trim() !== '') ||
+                    (typeof value === 'number' && !isFormula),
+        });
+      }
+      grid.set(key, infoCache.get(infoKey));
+    }
+  }
+  return { grid, maxRow: range.e.r + 1, maxCol: range.e.c + 1 };
+}
+
+/**
+ * 手直し（見出し⇔入力欄の切替・型指定・プルダウン・数式編集）をgridに適用する。
+ * override = { kind: 'label'|'textarea'|'number'|'currency'|'select'|'formula',
+ *              label, options, formula }
+ * gridを直接書き換えるので、この後にsplitSections/buildSectionObjectを呼べば
+ * 手直し後の構造がそのままJSON出力にも反映される（描画と書き出しで二重管理しない）。
+ */
+function applyOverrides(grid, overridesById, cellIdFn) {
+  for (const info of new Set(grid.values())) {
+    const ov = overridesById[cellIdFn(info)];
+    if (!ov) continue;
+    // 項目名マッピング（B）：セルの種類とは独立した設定なので、種類の分岐に関係なく
+    // 常に反映する（未設定はnull＝JSON出力は従来通り自動名「col11」等のまま）。
+    info.dbKey = ov.dbKey || null;
+    if (ov.kind === 'label') {
+      const text = String(ov.label || '').trim();
+      if (text) {
+        info.hasText = true;
+        info.isFormula = false;
+        info.value = ov.label;
+        info.blocked = false;
+      } else {
+        // 見出しの文字を空欄にした場合：入力不可の空白セル（余白・仕切り）にする。
+        // hasTextはfalseのまま（＝JSONの項目名にもセクション見出しにもならない）。
+        info.hasText = false;
+        info.isFormula = false;
+        info.blocked = true;
+      }
+    } else if (ov.kind === 'formula') {
+      info.isFormula = true;
+      info.hasText = false;
+      info.blocked = false;
+      info.formula = ov.formula || info.formula;
+    } else {
+      info.hasText = false;
+      info.isFormula = false;
+      info.blocked = false;
+      info.renderType = ov.kind;
+      info.renderOptions = ov.options || null;
+    }
+  }
+}
+
+/**
+ * 書き出し済みの入力フォームHTMLから取り出したSTRUCTURE（serializeStructureの出力）を、
+ * buildGridと同じ形のgrid Mapに復元する。手直し結果（renderType/blocked/formula等）は
+ * すでにcellsに焼き込み済みなのでそのまま使い、この上にさらに新しいOVERRIDESを重ねられる。
+ */
+function buildGridFromCells(cells, maxRow, maxCol) {
+  const grid = new Map();
+  cells.forEach(c => {
+    const info = {
+      row: c.row, col: c.col, row2: c.row2, col2: c.col2,
+      value: c.value, isFormula: !!c.isFormula, formula: c.formula || '',
+      hasFill: !!c.fillColor, fillColor: c.fillColor || null,
+      renderType: c.renderType || null, renderOptions: c.renderOptions || null,
+      dbKey: c.dbKey || null,
+      blocked: !!c.blocked, hasText: !!c.hasText,
+    };
+    for (let r = c.row; r <= c.row2; r++) {
+      for (let cc = c.col; cc <= c.col2; cc++) {
+        grid.set(r + ',' + cc, info);
+      }
+    }
+  });
+  return { grid, maxRow, maxCol };
+}
+
+function colNumToLetter(n) {
+  let s = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    s = String.fromCharCode(65 + rem) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+function XLSXUtilsDecodeRange(ref) {
+  const [a, b] = ref.split(':');
+  const pa = parseRef(a), pb = parseRef(b || a);
+  return { s: { r: pa.row - 1, c: pa.col - 1 }, e: { r: pb.row - 1, c: pb.col - 1 } };
+}
+
+// ---------------------------------------------------------------------------
+// 2. セクション分割：1列目だけに値があり他の列が空の行を「見出し行」とみなす
+//    （ロック状態やフォントに頼らず、値の配置パターンだけで判定する簡易版）
+// ---------------------------------------------------------------------------
+
+function splitSections(grid, maxRow, maxCol) {
+  const markers = [];
+  const seen = new Set();
+  for (let r = 1; r <= maxRow; r++) {
+    const a1 = grid.get(r + ',1');
+    if (!a1 || a1.row !== r || !a1.hasText) continue;
+    // 複数行にまたがる縦結合（「R6年度」等の外側グループラベル）は見出し行ではない。
+    // 見出し行は1行だけの短いラベル（例：Do／Check）という前提を置く。
+    if (a1.row2 !== a1.row) continue;
+    // 「他の列が空欄」だけでは、空欄テンプレートでは普通のラベル行
+    // （例：事業の目的＋空欄の入力欄）と区別がつかない。塗りつぶし色の有無を
+    // 追加の判定材料にする（このツールの前提：見出し行だけ無地、ラベル行は
+    // 塗りつぶしあり。SheetJSはロック状態は読めないが塗りつぶし色は読める）。
+    if (a1.hasFill) continue;
+    // 塗りつぶしなし・単独行・値ありという条件だけで見出し行と判定する
+    // （「他の列が空欄」という追加条件は、見出し行と同じ行にたまたま入っている
+    // 補足メモ（「（単位：千円）」等）1つで簡単に崩れるため、あえて課さない）。
+    if (!seen.has(r)) {
+      seen.add(r);
+      markers.push({ row: r, title: String(a1.value) });
+    }
+  }
+  if (markers.length === 0) {
+    return [{ title: 'シート', row0: 1, row1: maxRow }];
+  }
+  const sections = [];
+  markers.forEach((m, i) => {
+    const row1 = i + 1 < markers.length ? markers[i + 1].row - 1 : maxRow;
+    sections.push({ title: m.title, row0: m.row + 1, row1 });
+  });
+  return sections;
+}
+
+// ---------------------------------------------------------------------------
+// 3. 行ユニット化＋構造の入れ子JSON化（ラベル→値、グループ→子リストを再帰的に組み立てる）
+// ---------------------------------------------------------------------------
+
+function rowSpanOf(grid, r, maxCol) {
+  // 1列目（外側グループラベル列になりやすい）を除外し、2列目以降の結合状況だけで
+  // その行の実質的な高さを求める（PDF/Excel版の試作で得た教訓を踏襲）。
+  let row2 = r;
+  for (let c = 2; c <= maxCol; c++) {
+    const info = grid.get(r + ',' + c);
+    if (info && info.row === r) row2 = Math.max(row2, info.row2);
+  }
+  return row2;
+}
+
+function firstCellOfRow(grid, r0, maxCol, fromCol) {
+  for (let c = fromCol; c <= maxCol; c++) {
+    const info = grid.get(r0 + ',' + c);
+    if (info && info.row === r0) return info;
+  }
+  return null;
+}
+
+function cellsOfRow(grid, r0, maxCol, fromCol) {
+  const out = [];
+  const seen = new Set();
+  for (let c = fromCol; c <= maxCol; c++) {
+    const info = grid.get(r0 + ',' + c);
+    if (!info || info.row !== r0) continue;
+    const key = info.row + ',' + info.col;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(info);
+  }
+  return out;
+}
+
+function buildUnits(grid, row0, row1, maxCol) {
+  const units = [];
+  let r = row0;
+  while (r <= row1) {
+    const r2 = rowSpanOf(grid, r, maxCol);
+    units.push([r, r2]);
+    r = r2 + 1;
+  }
+  return units;
+}
+
+/**
+ * セクション本文（row0〜row1）を、入れ子のJSONオブジェクトに変換する。
+ * - 1列目に「複数ユニットにまたがる縦結合ラベル」があれば、そのラベルをキーに
+ *   子ユニット群を再帰的にまとめる（子が全て無名＝配列、子に個別ラベルあり＝辞書）。
+ * - それ以外の単発ユニットは「1列目のラベル → 2列目以降の値（複数あれば辞書）」として扱う。
+ * - 数式セル（合計行等）は除外する。
+ */
+function cellId(info) {
+  return 'cell_R' + info.row + '_C' + info.col;
+}
+
+// getValue(info) は「このセルの値をどこから読むか」を差し替え可能にする。
+// 省略時はテンプレート自身の値（プレビュー用）。フォーム入力後の書き出し時は
+// 対応するDOM要素（input/textarea、id=cellId(info)）から読む関数を渡す。
+function defaultGetValue(info) {
+  return info.hasText ? info.value : '';
+}
+
+// 手動グループ化（A）：ある行(u0)がユーザーが明示的に宣言したグループの開始行かどうかを返す。
+// {row0,row1,name} の配列から、row0が一致するものを探す（1範囲=1グループの前提）。
+function findManualGroup(manualGroups, u0) {
+  return (manualGroups || []).find(g => g.row0 === u0) || null;
+}
+
+function buildSectionObject(grid, row0, row1, maxCol, getValue, manualGroups) {
+  getValue = getValue || defaultGetValue;
+  const units = buildUnits(grid, row0, row1, maxCol);
+  const result = {};
+  let i = 0;
+  while (i < units.length) {
+    const [u0, u1] = units[i];
+
+    // 手動グループ（A）：Excelの縦結合の有無に頼らず、人が明示的に「この範囲は
+    // 親ラベル＋子レコードの配列」と宣言したもの。自動検出（縦結合ラベル）より優先する。
+    // 子行は1列目もそのまま値として扱う（縦結合ラベルのように1列目を消費しないため fromCol=1）。
+    const manualGroup = findManualGroup(manualGroups, u0);
+    if (manualGroup) {
+      const groupEndRow = manualGroup.row1;
+      const childUnits = [];
+      let j = i;
+      while (j < units.length && units[j][0] <= groupEndRow) { childUnits.push(units[j]); j++; }
+
+      const children = childUnits.map(([cu0, cu1]) => buildRowEntry(grid, cu0, cu1, maxCol, 1, getValue));
+      const allNamed = children.every(c => c.label);
+      const key = manualGroup.name;
+      if (allNamed) {
+        const dict = {};
+        children.forEach(c => { dict[c.label] = c.value; });
+        result[key] = dict;
+      } else {
+        result[key] = children.map(c => c.value);
+      }
+      i = j;
+      continue;
+    }
+
+    const groupLabelInfo = grid.get(u0 + ',1');
+    const isGroupStart = groupLabelInfo && groupLabelInfo.row === u0 && groupLabelInfo.row2 > u1 && groupLabelInfo.hasText;
+
+    if (isGroupStart) {
+      const groupEndRow = groupLabelInfo.row2;
+      // このグループに属するユニットをすべて集める
+      const childUnits = [];
+      let j = i;
+      while (j < units.length && units[j][0] <= groupEndRow) { childUnits.push(units[j]); j++; }
+
+      const children = childUnits.map(([cu0, cu1]) => buildRowEntry(grid, cu0, cu1, maxCol, 2, getValue));
+      const allNamed = children.every(c => c.label);
+      const key = String(groupLabelInfo.value).replace(/\s+/g, '');
+      if (allNamed) {
+        const dict = {};
+        children.forEach(c => { dict[c.label] = c.value; });
+        result[key] = dict;
+      } else {
+        result[key] = children.map(c => c.value);
+      }
+      i = j;
+      continue;
+    }
+
+    const entry = buildRowEntry(grid, u0, u1, maxCol, 1, getValue);
+    if (entry.label) {
+      result[entry.label] = entry.value;
+    }
+    // ラベルなしの単発行（グループにも属さない）は、見出しどうしの間の余白行など
+    // 意味を持たない行であることがほとんどのため、トップレベルには出力しない
+    // （グループ内の無名行は上のisGroupStart分岐で別途、配列として正しく保持される）。
+    i++;
+  }
+  return result;
+}
+
+/**
+ * 1つの行ユニットを {label, value} に変換する。
+ * fromCol=1のときは1列目自体をラベル候補とする。fromCol=2のときは
+ * （呼び出し元がすでにグループラベルとして1列目を消費済みなので）2列目から見る。
+ */
+function buildRowEntry(grid, u0, u1, maxCol, fromCol, getValue) {
+  getValue = getValue || defaultGetValue;
+  const cells = cellsOfRow(grid, u0, maxCol, fromCol).filter(c => !c.isFormula);
+  if (cells.length === 0) return { label: null, value: null };
+
+  const first = cells[0];
+  if (first.hasText) {
+    // 先頭セルがラベル。残りのセルを値として集める。
+    const rest = cells.slice(1);
+    if (rest.length === 0) return { label: null, value: null };
+    if (rest.length === 1) {
+      return { label: String(first.value).replace(/\s+/g, ''), value: getValue(rest[0]) };
+    }
+    const dict = {};
+    // 項目名マッピング（B）：dbKeyが設定されていればそれをJSONのキー名として使う（未設定は従来通りcolN）。
+    rest.forEach((c) => { dict[c.dbKey || ('col' + c.col)] = getValue(c); });
+    return { label: String(first.value).replace(/\s+/g, ''), value: dict };
+  }
+  // 先頭セルが空欄（＝ラベルなしの行。繰り返し項目行など）→ 行全体を1つの無名レコードとして返す
+  const dict = {};
+  cells.forEach(c => { dict[c.dbKey || ('col' + c.col)] = getValue(c); });
+  return { label: null, value: dict };
+}
+
+// ---------------------------------------------------------------------------
+// メイン：workbook（SheetJSのws）→ 構造化オブジェクト
+// ---------------------------------------------------------------------------
+
+function extractStructure(ws, manualGroups) {
+  const { grid, maxRow, maxCol } = buildGrid(ws);
+  const sections = splitSections(grid, maxRow, maxCol);
+  const data = {};
+  const meta = { sections: sections.map(s => s.title) };
+  for (const sec of sections) {
+    data[sec.title] = buildSectionObject(grid, sec.row0, sec.row1, maxCol, null, manualGroups);
+  }
+  return { grid, maxRow, maxCol, sections, data, meta };
+}
+
+return {
+  buildGrid, buildGridFromCells, splitSections, buildSectionObject, extractStructure,
+  colNumToLetter, cellId, defaultGetValue, applyOverrides, findManualGroup,
+};
+});
+
+</script>
+<script>
+// ビルダー（excel_form_builder.html）・生成される入力フォームの両方で共有する
+// 「グリッド描画・データ収集/復元・数式再計算・貼り付け」ロジック。
+// core_logic.js（CoreLogic.cellId／colNumToLetter／buildSectionObject）に依存する。
+//
+// state の形： { grid, maxRow, maxCol, widths, heights, sections, fileName }
+//   - grid: Map<'row,col', CellInfo>（結合解決済み。core_logic.jsのbuildGrid/applyOverrides適用後のもの）
+//   - widths/heights: 各列・各行のピクセル寸法の配列（1始まりの列・行番号に合わせ、widths[c-1]でアクセス）
+//   - sections: [{title, row0, row1}, ...]（JSON書き出し/読み込みに必要）
+
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) {
+    module.exports = factory();
+  } else {
+    root.GridRender = factory();
+  }
+})(typeof self !== 'undefined' ? self : this, function () {
+
+function el(tag, attrs, children) {
+  const e = document.createElement(tag);
+  if (attrs) for (const k in attrs) {
+    if (k === 'text') e.textContent = attrs[k];
+    else if (k === 'html') e.innerHTML = attrs[k];
+    else e.setAttribute(k, attrs[k]);
+  }
+  (children || []).forEach(c => c && e.appendChild(c));
+  return e;
+}
+
+// ---------------------------------------------------------------------------
+// グリッド描画
+// ---------------------------------------------------------------------------
+
+function buildInputControl(info, rowspan, colspan) {
+  const type = info.renderType || 'textarea';
+  const id = CoreLogic.cellId(info);
+  if (type === 'select') {
+    const select = el('select', { id });
+    select.appendChild(el('option', { value: '' }, [document.createTextNode('（未選択）')]));
+    (info.renderOptions || []).forEach(opt => select.appendChild(el('option', { value: opt }, [document.createTextNode(opt)])));
+    return select;
+  }
+  if (type === 'number') {
+    const input = el('input', { id });
+    input.setAttribute('type', 'number');
+    input.classList.add('input-number');
+    return input;
+  }
+  if (type === 'currency') {
+    const input = el('input', { id });
+    input.setAttribute('type', 'text');
+    input.classList.add('input-currency');
+    input.addEventListener('input', () => {
+      const digits = input.value.replace(/[^\d]/g, '');
+      input.value = digits ? Number(digits).toLocaleString('ja-JP') : '';
+    });
+    return input;
+  }
+  return el('textarea', { id });
+}
+
+/**
+ * state（grid/maxRow/maxCol/widths/heights）をrootElに描画する。
+ * opts.showGear=true のとき各セルに⚙アイコンを付け、クリックでopts.onGear(info)を呼ぶ
+ * （手直し機能を持つビルダー専用。生成済み入力フォーム側はfalseにする）。
+ * opts.selected（Set<'row,col'>）を渡すと該当セルに .cell-selected を付ける。
+ * 戻り値：このグリッドに含まれる数式セルのinfo配列（再計算対象として呼び出し元が保持する）。
+ */
+function renderGrid(rootEl, state, opts) {
+  opts = opts || {};
+  const { grid, maxRow, maxCol, widths, heights, manualGroups } = state;
+  const formulaCells = [];
+  rootEl.innerHTML = '';
+
+  // 手動グループ（A）に属する行番号の集合。セルの背景に薄い印を付け、
+  // どの範囲がすでに「繰り返しデータ」として宣言済みかを一目で分かるようにする。
+  const groupedRows = new Set();
+  (manualGroups || []).forEach(g => {
+    for (let r = g.row0; r <= g.row1; r++) groupedRows.add(r);
+  });
+
+  const table = el('table', { class: 'excel-grid' });
+  const colgroup = el('colgroup');
+  colgroup.appendChild(el('col', { style: 'width:34px' }));
+  for (let c = 1; c <= maxCol; c++) {
+    colgroup.appendChild(el('col', { style: `width:${(widths && widths[c - 1]) || 64}px` }));
+  }
+  table.appendChild(colgroup);
+
+  const theadRow = el('tr', { class: 'ruler-row' });
+  theadRow.appendChild(el('th', { class: 'ruler-corner' }));
+  for (let c = 1; c <= maxCol; c++) {
+    theadRow.appendChild(el('th', { class: 'ruler-col', text: CoreLogic.colNumToLetter(c) }));
+  }
+  const thead = el('thead');
+  thead.appendChild(theadRow);
+  table.appendChild(thead);
+
+  const tbody = el('tbody');
+  for (let r = 1; r <= maxRow; r++) {
+    const tr = el('tr', { style: `height:${(heights && heights[r - 1]) || 22}px` });
+    tr.appendChild(el('th', { class: 'ruler-row-num', text: String(r) }));
+    for (let c = 1; c <= maxCol; c++) {
+      const info = grid.get(r + ',' + c);
+      if (!info || info.row !== r || info.col !== c) continue;
+      const rowspan = info.row2 - info.row + 1;
+      const colspan = info.col2 - info.col + 1;
+      const cellKey = info.row + ',' + info.col;
+      const td = el('td', {
+        rowspan: String(rowspan), colspan: String(colspan),
+        id: 'td_R' + info.row + '_C' + info.col,
+        'data-row': String(info.row), 'data-col': String(info.col),
+      });
+
+      if (opts.showGear) {
+        const gear = el('button', { class: 'gear-btn', title: 'このセルの種類を設定', type: 'button', text: '⚙' });
+        // mousedownの段階で止めないと、複数選択モードのドラッグ選択（td側のmousedown）が
+        // 先に発火してしまい、ギアボタンをクリックしただけで意図せずセルが選択状態になる。
+        gear.addEventListener('mousedown', (ev) => ev.stopPropagation());
+        gear.addEventListener('click', (ev) => { ev.stopPropagation(); opts.onGear && opts.onGear(info); });
+        td.appendChild(gear);
+      }
+
+      if (info.isFormula) {
+        td.className = 'cell-calc';
+        const span = el('span', { class: 'calc-val', id: 'calcval_' + CoreLogic.cellId(info), text: '(計算中)' });
+        td.appendChild(span);
+        formulaCells.push(info);
+      } else if (info.blocked) {
+        td.className = 'cell-blocked';
+      } else if (info.hasText) {
+        td.className = 'cell-label';
+        if (info.fillColor) td.style.background = '#' + info.fillColor;
+        const span = el('span', { text: String(info.value) });
+        if (opts.onGear) span.addEventListener('dblclick', () => opts.onGear(info));
+        td.appendChild(span);
+      } else {
+        td.className = 'cell-input';
+        td.appendChild(buildInputControl(info, rowspan, colspan));
+      }
+      if (opts.selected && opts.selected.has(cellKey)) td.classList.add('cell-selected');
+      if (groupedRows.has(info.row)) td.classList.add('cell-grouped');
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  rootEl.appendChild(table);
+
+  state.formulaCells = formulaCells;
+  recalcAllFormulas(state);
+  return formulaCells;
+}
+
+// ---------------------------------------------------------------------------
+// 数式（SUM）の簡易評価
+// ---------------------------------------------------------------------------
+
+function parseCellRef(ref) {
+  const m = ref.match(/^([A-Z]+)(\d+)$/);
+  if (!m) return null;
+  let col = 0;
+  for (const ch of m[1]) col = col * 26 + (ch.charCodeAt(0) - 64);
+  return { col, row: parseInt(m[2], 10) };
+}
+
+function parseSumFormula(formula) {
+  const m = String(formula || '').match(/^=SUM\(([A-Z]+\d+):([A-Z]+\d+)\)$/i);
+  if (!m) return null;
+  const a = parseCellRef(m[1]), b = parseCellRef(m[2]);
+  if (!a || !b) return null;
+  return { r0: Math.min(a.row, b.row), r1: Math.max(a.row, b.row), c0: Math.min(a.col, b.col), c1: Math.max(a.col, b.col) };
+}
+
+function evalFormulaInfo(state, info) {
+  const range = parseSumFormula(info.formula);
+  if (!range) return null;
+  const { grid } = state;
+  let sum = 0;
+  const seen = new Set();
+  for (let r = range.r0; r <= range.r1; r++) {
+    for (let c = range.c0; c <= range.c1; c++) {
+      const cellInfo = grid.get(r + ',' + c);
+      if (!cellInfo) continue;
+      const key = cellInfo.row + ',' + cellInfo.col;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (cellInfo.isFormula) continue;
+      const elx = document.getElementById(CoreLogic.cellId(cellInfo));
+      const raw = elx ? elx.value : (cellInfo.hasText ? cellInfo.value : '');
+      const num = parseFloat(String(raw).replace(/[,\s]/g, ''));
+      if (!isNaN(num)) sum += num;
+    }
+  }
+  return sum;
+}
+
+function recalcAllFormulas(state) {
+  (state.formulaCells || []).forEach(info => {
+    const span = document.getElementById('calcval_' + CoreLogic.cellId(info));
+    if (!span) return;
+    const val = evalFormulaInfo(state, info);
+    span.textContent = val === null ? '（自動計算・数式未対応）' : val.toLocaleString('ja-JP');
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 書き出し／読み込み（DOM値 ⇄ JSON）
+// ---------------------------------------------------------------------------
+
+function domGetValue(info) {
+  const elx = document.getElementById(CoreLogic.cellId(info));
+  return elx ? elx.value : '';
+}
+
+function collectData(state) {
+  const { grid, sections, maxCol, fileName, manualGroups } = state;
+  const out = { meta: { exported_at: new Date().toISOString(), source_file: fileName } };
+  for (const sec of sections) {
+    out[sec.title] = CoreLogic.buildSectionObject(grid, sec.row0, sec.row1, maxCol, domGetValue, manualGroups);
+  }
+  return out;
+}
+
+function loadDataIntoGrid(state, data) {
+  const { grid, sections, maxCol, manualGroups } = state;
+  for (const sec of sections) {
+    const secData = data[sec.title];
+    if (!secData) continue;
+    fillSection(grid, sec.row0, sec.row1, maxCol, secData, manualGroups);
+  }
+  recalcAllFormulas(state);
+}
+
+function fillSection(grid, row0, row1, maxCol, secData, manualGroups) {
+  let r = row0;
+  const units = [];
+  while (r <= row1) {
+    const r2 = rowSpanOfLocal(grid, r, maxCol);
+    units.push([r, r2]);
+    r = r2 + 1;
+  }
+  let i = 0;
+  while (i < units.length) {
+    const [u0, u1] = units[i];
+
+    // 手動グループ（A）：core_logic.js の buildSectionObject と対称の実装
+    // （書き出し側と読込側で判定条件が食い違うと、値が消える／混線するバグの原因になる）。
+    const manualGroup = CoreLogic.findManualGroup(manualGroups, u0);
+    if (manualGroup) {
+      const groupEndRow = manualGroup.row1;
+      const key = manualGroup.name;
+      const childUnits = [];
+      let j = i;
+      while (j < units.length && units[j][0] <= groupEndRow) { childUnits.push(units[j]); j++; }
+      const groupVal = secData[key];
+      if (groupVal) {
+        childUnits.forEach(([cu0, cu1], idx) => {
+          const childVal = Array.isArray(groupVal) ? groupVal[idx] : groupVal[labelOfRow(grid, cu0, maxCol, 1)];
+          fillRow(grid, cu0, maxCol, 1, childVal);
+        });
+      }
+      i = j;
+      continue;
+    }
+
+    const groupInfo = grid.get(u0 + ',1');
+    const isGroupStart = groupInfo && groupInfo.row === u0 && groupInfo.row2 > u1 && groupInfo.hasText;
+    if (isGroupStart) {
+      const groupEndRow = groupInfo.row2;
+      const key = String(groupInfo.value).replace(/\s+/g, '');
+      const childUnits = [];
+      let j = i;
+      while (j < units.length && units[j][0] <= groupEndRow) { childUnits.push(units[j]); j++; }
+      const groupVal = secData[key];
+      if (groupVal) {
+        childUnits.forEach(([cu0, cu1], idx) => {
+          const childVal = Array.isArray(groupVal) ? groupVal[idx] : groupVal[labelOfRow(grid, cu0, maxCol, 2)];
+          fillRow(grid, cu0, maxCol, 2, childVal);
+        });
+      }
+      i = j;
+      continue;
+    }
+    const label = labelOfRow(grid, u0, maxCol, 1);
+    if (label && secData[label] !== undefined) {
+      fillRow(grid, u0, maxCol, 1, secData[label]);
+    }
+    i++;
+  }
+}
+
+function rowSpanOfLocal(grid, r, maxCol) {
+  let row2 = r;
+  for (let c = 2; c <= maxCol; c++) {
+    const info = grid.get(r + ',' + c);
+    if (info && info.row === r) row2 = Math.max(row2, info.row2);
+  }
+  return row2;
+}
+
+function labelOfRow(grid, r0, maxCol, fromCol) {
+  for (let c = fromCol; c <= maxCol; c++) {
+    const info = grid.get(r0 + ',' + c);
+    if (info && info.row === r0) return info.hasText ? String(info.value).replace(/\s+/g, '') : null;
+  }
+  return null;
+}
+
+function fillRow(grid, r0, maxCol, fromCol, rowVal) {
+  if (rowVal === undefined || rowVal === null) return;
+  const cells = [];
+  const seen = new Set();
+  for (let c = fromCol; c <= maxCol; c++) {
+    const info = grid.get(r0 + ',' + c);
+    if (!info || info.row !== r0 || info.isFormula) continue;
+    const key = info.row + ',' + info.col;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cells.push(info);
+  }
+  if (cells.length === 0) return;
+  const first = cells[0];
+  const valueCells = first.hasText ? cells.slice(1) : cells;
+  if (typeof rowVal === 'object' && !Array.isArray(rowVal)) {
+    valueCells.forEach(c => {
+      const v = rowVal[c.dbKey || ('col' + c.col)];
+      if (v !== undefined) setDomValue(c, v);
+    });
+  } else if (valueCells.length === 1) {
+    setDomValue(valueCells[0], rowVal);
+  }
+}
+
+function setDomValue(info, v) {
+  const elx = document.getElementById(CoreLogic.cellId(info));
+  if (elx) elx.value = v === null || v === undefined ? '' : v;
+}
+
+// ---------------------------------------------------------------------------
+// 貼り付け対応（簡易版：タブ区切りテキストを、選択中セルを起点に貼り付ける）
+// ---------------------------------------------------------------------------
+
+function setupPasteHandler(state, statusEl) {
+  document.addEventListener('paste', (ev) => {
+    const active = document.activeElement;
+    if (!active || !active.id || !active.id.startsWith('cell_')) return;
+    const text = (ev.clipboardData || window.clipboardData).getData('text');
+    if (!text || (text.indexOf('\t') === -1 && text.indexOf('\n') === -1)) return;
+    ev.preventDefault();
+    const m = active.id.match(/^cell_R(\d+)_C(\d+)$/);
+    if (!m) return;
+    const startRow = parseInt(m[1], 10), startCol = parseInt(m[2], 10);
+    const rows = text.replace(/\r/g, '').split('\n').filter((_, i, arr) => !(i === arr.length - 1 && arr[i] === ''));
+    rows.forEach((line, ri) => {
+      const cols = line.split('\t');
+      cols.forEach((val, ci) => {
+        const target = document.getElementById(`cell_R${startRow + ri}_C${startCol + ci}`);
+        if (target) target.value = val;
+      });
+    });
+    recalcAllFormulas(state);
+    if (statusEl) statusEl.textContent = `貼り付けました（${rows.length}行）。空欄でないセルの一部が対応する入力欄に反映されていない場合があります。結果をご確認ください。`;
+  });
+  document.addEventListener('input', (ev) => {
+    if (ev.target && ev.target.id && ev.target.id.startsWith('cell_')) recalcAllFormulas(state);
+  });
+}
+
+return {
+  buildInputControl, renderGrid, collectData, loadDataIntoGrid, recalcAllFormulas,
+  setupPasteHandler,
+};
+});
+
+</script>
+<script>
+const STRUCTURE = {"formTitle":"mock_template_kosai","maxRow":52,"maxCol":14,"widths":[49,49,49,49,49,49,49,49,49,49,49,49,49,49],"heights":[22,14,17,14,17,24,40,40,12,14,13,13,13,13,13,13,13,13,14,22,12,13,13,13,13,13,14,13,26,26,26,24,22,12,14,24,22,14,13,13,13,13,13,13,13,13,13,13,13,13,13,14],"sections":[{"title":"Plan","row0":3,"row1":8},{"title":"Do","row0":10,"row1":20},{"title":"Check","row0":22,"row1":33},{"title":"Action","row0":35,"row1":52}],"cells":[{"row":1,"col":1,"row2":1,"col2":1,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":1,"col":2,"row2":1,"col2":2,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":1,"col":3,"row2":1,"col2":3,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":1,"col":4,"row2":1,"col2":4,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":1,"col":5,"row2":1,"col2":9,"value":"令和7年度実施　事務事業評価（テンプレート・記入欄は白色）","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":1,"col":10,"row2":1,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":1,"col":11,"row2":1,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":1,"col":12,"row2":1,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":1,"col":13,"row2":1,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":1,"col":14,"row2":1,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":1,"row2":2,"col2":1,"value":"Plan","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":2,"row2":2,"col2":2,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":3,"row2":2,"col2":3,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":4,"row2":2,"col2":4,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":5,"row2":2,"col2":5,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":6,"row2":2,"col2":6,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":7,"row2":2,"col2":7,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":8,"row2":2,"col2":8,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":9,"row2":2,"col2":9,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":10,"row2":2,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":11,"row2":2,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":12,"row2":2,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":13,"row2":2,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":2,"col":14,"row2":2,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":3,"col":1,"row2":3,"col2":1,"value":"事業名","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":3,"col":2,"row2":3,"col2":7,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":3,"col":8,"row2":3,"col2":9,"value":"事業類型","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":3,"col":10,"row2":3,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":3,"col":12,"row2":3,"col2":12,"value":"区分","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":3,"col":13,"row2":3,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":4,"col":1,"row2":4,"col2":2,"value":"予算科目","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":4,"col":3,"row2":4,"col2":4,"value":"一般会計","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":4,"col":5,"row2":4,"col2":5,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":4,"col":6,"row2":4,"col2":6,"value":"款","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":4,"col":7,"row2":4,"col2":7,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":4,"col":8,"row2":4,"col2":8,"value":"項","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":4,"col":9,"row2":4,"col2":9,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":4,"col":10,"row2":4,"col2":10,"value":"目","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":4,"col":11,"row2":4,"col2":11,"value":"事業1","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":4,"col":12,"row2":4,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":4,"col":13,"row2":4,"col2":13,"value":"事業2","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":4,"col":14,"row2":4,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":5,"col":1,"row2":5,"col2":2,"value":"担当部署","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":5,"col":3,"row2":5,"col2":4,"value":"部","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":5,"col":5,"row2":5,"col2":8,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":5,"col":9,"row2":5,"col2":10,"value":"課","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":5,"col":11,"row2":5,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":6,"col":1,"row2":6,"col2":2,"value":"総合計画体系","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":6,"col":3,"row2":6,"col2":3,"value":"戦略","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":6,"col":4,"row2":6,"col2":7,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":6,"col":8,"row2":6,"col2":8,"value":"施策","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":6,"col":9,"row2":6,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":6,"col":13,"row2":6,"col2":13,"value":"基本事業","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":6,"col":14,"row2":6,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":7,"col":1,"row2":7,"col2":2,"value":"事業の目的","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":7,"col":3,"row2":7,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":8,"col":1,"row2":8,"col2":2,"value":"事業の概要","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":8,"col":3,"row2":8,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":1,"row2":9,"col2":1,"value":"Do","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":2,"row2":9,"col2":2,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":3,"row2":9,"col2":3,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":4,"row2":9,"col2":4,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":5,"row2":9,"col2":5,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":6,"row2":9,"col2":6,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":7,"row2":9,"col2":7,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":8,"row2":9,"col2":8,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":9,"row2":9,"col2":9,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":10,"row2":9,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":11,"row2":9,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":12,"row2":9,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":13,"row2":9,"col2":13,"value":"（単位：千円）","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":9,"col":14,"row2":9,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":10,"col":1,"row2":10,"col2":10,"value":"事業内容と活動実績","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":10,"col":11,"row2":10,"col2":12,"value":"決算見込額","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":10,"col":13,"row2":10,"col2":14,"value":"内、特定財源","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":11,"col":1,"row2":19,"col2":1,"value":"R6年度\r\n(2024年度)","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":11,"col":2,"row2":11,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":11,"col":11,"row2":11,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":11,"col":13,"row2":11,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":12,"col":2,"row2":12,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":12,"col":11,"row2":12,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":12,"col":13,"row2":12,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":13,"col":2,"row2":13,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":13,"col":11,"row2":13,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":13,"col":13,"row2":13,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":14,"col":2,"row2":14,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":14,"col":11,"row2":14,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":14,"col":13,"row2":14,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":15,"col":2,"row2":15,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":15,"col":11,"row2":15,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":15,"col":13,"row2":15,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":16,"col":2,"row2":16,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":16,"col":11,"row2":16,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":16,"col":13,"row2":16,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":17,"col":2,"row2":17,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":17,"col":11,"row2":17,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":17,"col":13,"row2":17,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":18,"col":2,"row2":18,"col2":10,"value":"その他","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":18,"col":11,"row2":18,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":18,"col":13,"row2":18,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":19,"col":2,"row2":19,"col2":10,"value":"合計","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":19,"col":11,"row2":19,"col2":12,"value":"","isFormula":true,"formula":"=SUM(K11:L18)","hasText":false,"blocked":false,"fillColor":"F2E6CE","renderType":null,"renderOptions":null,"dbKey":null},{"row":19,"col":13,"row2":19,"col2":14,"value":"","isFormula":true,"formula":"=SUM(M11:N18)","hasText":false,"blocked":false,"fillColor":"F2E6CE","renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":1,"row2":20,"col2":1,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":2,"row2":20,"col2":2,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":3,"row2":20,"col2":3,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":4,"row2":20,"col2":4,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":5,"row2":20,"col2":5,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":6,"row2":20,"col2":6,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":7,"row2":20,"col2":7,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":8,"row2":20,"col2":8,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":9,"row2":20,"col2":9,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":10,"row2":20,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":11,"row2":20,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":12,"row2":20,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":13,"row2":20,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":20,"col":14,"row2":20,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":1,"row2":21,"col2":1,"value":"Check","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":2,"row2":21,"col2":2,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":3,"row2":21,"col2":3,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":4,"row2":21,"col2":4,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":5,"row2":21,"col2":5,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":6,"row2":21,"col2":6,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":7,"row2":21,"col2":7,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":8,"row2":21,"col2":8,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":9,"row2":21,"col2":9,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":10,"row2":21,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":11,"row2":21,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":12,"row2":21,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":13,"row2":21,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":21,"col":14,"row2":21,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":22,"col":1,"row2":25,"col2":1,"value":"成果指標","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":22,"col":2,"row2":23,"col2":8,"value":"成果指標名","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":22,"col":9,"row2":23,"col2":9,"value":"単位","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":22,"col":10,"row2":22,"col2":10,"value":"R-1年度","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":22,"col":11,"row2":22,"col2":11,"value":"R当年度","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":22,"col":12,"row2":22,"col2":12,"value":"R当年度","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":22,"col":13,"row2":22,"col2":13,"value":"R+1年度","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":22,"col":14,"row2":22,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":23,"col":10,"row2":23,"col2":10,"value":"実績","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":23,"col":11,"row2":23,"col2":11,"value":"目標","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":23,"col":12,"row2":23,"col2":12,"value":"実績","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":23,"col":13,"row2":23,"col2":13,"value":"目標","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":23,"col":14,"row2":23,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":24,"col":2,"row2":25,"col2":8,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":24,"col":9,"row2":25,"col2":9,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":24,"col":10,"row2":25,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":24,"col":11,"row2":25,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":24,"col":12,"row2":25,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":24,"col":13,"row2":25,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":24,"col":14,"row2":25,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":26,"col":1,"row2":27,"col2":2,"value":"達成状況","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":26,"col":3,"row2":27,"col2":3,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":26,"col":4,"row2":27,"col2":5,"value":"未達成の理由","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":26,"col":6,"row2":27,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":28,"col":1,"row2":31,"col2":1,"value":"事業評価","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":28,"col":2,"row2":28,"col2":3,"value":"判定","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":28,"col":4,"row2":28,"col2":14,"value":"判定理由","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":29,"col":2,"row2":29,"col2":2,"value":"必要性","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":29,"col":3,"row2":29,"col2":3,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":29,"col":4,"row2":29,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":30,"col":2,"row2":30,"col2":2,"value":"有効性","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":30,"col":3,"row2":30,"col2":3,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":30,"col":4,"row2":30,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":31,"col":2,"row2":31,"col2":2,"value":"効率性","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":31,"col":3,"row2":31,"col2":3,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":31,"col":4,"row2":31,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":32,"col":1,"row2":32,"col2":2,"value":"課題、問題点など","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":32,"col":3,"row2":32,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":1,"row2":33,"col2":1,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":2,"row2":33,"col2":2,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":3,"row2":33,"col2":3,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":4,"row2":33,"col2":4,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":5,"row2":33,"col2":5,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":6,"row2":33,"col2":6,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":7,"row2":33,"col2":7,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":8,"row2":33,"col2":8,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":9,"row2":33,"col2":9,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":10,"row2":33,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":11,"row2":33,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":12,"row2":33,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":13,"row2":33,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":33,"col":14,"row2":33,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":1,"row2":34,"col2":1,"value":"Action","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":2,"row2":34,"col2":2,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":3,"row2":34,"col2":3,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":4,"row2":34,"col2":4,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":5,"row2":34,"col2":5,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":6,"row2":34,"col2":6,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":7,"row2":34,"col2":7,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":8,"row2":34,"col2":8,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":9,"row2":34,"col2":9,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":10,"row2":34,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":11,"row2":34,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":12,"row2":34,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":13,"row2":34,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":34,"col":14,"row2":34,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":35,"col":1,"row2":35,"col2":4,"value":"事業費の方向性","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":35,"col":5,"row2":35,"col2":14,"value":"改善点や今後の予定","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":36,"col":1,"row2":36,"col2":1,"value":"R+1年度","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":36,"col":2,"row2":36,"col2":2,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":36,"col":3,"row2":36,"col2":3,"value":"R+2年度～","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":36,"col":4,"row2":36,"col2":4,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":36,"col":5,"row2":36,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":1,"row2":37,"col2":1,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":2,"row2":37,"col2":2,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":3,"row2":37,"col2":3,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":4,"row2":37,"col2":4,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":5,"row2":37,"col2":5,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":6,"row2":37,"col2":6,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":7,"row2":37,"col2":7,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":8,"row2":37,"col2":8,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":9,"row2":37,"col2":9,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":10,"row2":37,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":11,"row2":37,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":12,"row2":37,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":13,"row2":37,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":37,"col":14,"row2":37,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":38,"col":1,"row2":38,"col2":2,"value":"今後の計画","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":38,"col":3,"row2":38,"col2":3,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":38,"col":4,"row2":38,"col2":4,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":38,"col":5,"row2":38,"col2":5,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":38,"col":6,"row2":38,"col2":6,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":38,"col":7,"row2":38,"col2":7,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":38,"col":8,"row2":38,"col2":8,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":38,"col":9,"row2":38,"col2":9,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":38,"col":10,"row2":38,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":38,"col":11,"row2":38,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":38,"col":12,"row2":38,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":38,"col":13,"row2":38,"col2":13,"value":"（単位：千円）","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":38,"col":14,"row2":38,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":null,"renderOptions":null,"dbKey":null},{"row":39,"col":1,"row2":41,"col2":10,"value":"事業内容","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":39,"col":11,"row2":39,"col2":12,"value":"R+1年度（次年度）","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":39,"col":13,"row2":39,"col2":14,"value":"R+2年度（翌々年度）","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":40,"col":11,"row2":40,"col2":12,"value":"当初予算","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":40,"col":13,"row2":40,"col2":14,"value":"予定","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":41,"col":11,"row2":41,"col2":11,"value":"事業費","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":41,"col":12,"row2":41,"col2":12,"value":"内、特財","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":41,"col":13,"row2":41,"col2":13,"value":"事業費","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":41,"col":14,"row2":41,"col2":14,"value":"内、特財","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"C9DAF0","renderType":null,"renderOptions":null,"dbKey":null},{"row":42,"col":1,"row2":42,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"事業内容"},{"row":42,"col":11,"row2":42,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の事業費"},{"row":42,"col":12,"row2":42,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の内、特財"},{"row":42,"col":13,"row2":42,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の事業費"},{"row":42,"col":14,"row2":42,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の内、特財"},{"row":43,"col":1,"row2":43,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"事業内容"},{"row":43,"col":11,"row2":43,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の事業費"},{"row":43,"col":12,"row2":43,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の内、特財"},{"row":43,"col":13,"row2":43,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の事業費"},{"row":43,"col":14,"row2":43,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の内、特財"},{"row":44,"col":1,"row2":44,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"事業内容"},{"row":44,"col":11,"row2":44,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の事業費"},{"row":44,"col":12,"row2":44,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の内、特財"},{"row":44,"col":13,"row2":44,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の事業費"},{"row":44,"col":14,"row2":44,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の内、特財"},{"row":45,"col":1,"row2":45,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"事業内容"},{"row":45,"col":11,"row2":45,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の事業費"},{"row":45,"col":12,"row2":45,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の内、特財"},{"row":45,"col":13,"row2":45,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の事業費"},{"row":45,"col":14,"row2":45,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の内、特財"},{"row":46,"col":1,"row2":46,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"事業内容"},{"row":46,"col":11,"row2":46,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の事業費"},{"row":46,"col":12,"row2":46,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の内、特財"},{"row":46,"col":13,"row2":46,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の事業費"},{"row":46,"col":14,"row2":46,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の内、特財"},{"row":47,"col":1,"row2":47,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"事業内容"},{"row":47,"col":11,"row2":47,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の事業費"},{"row":47,"col":12,"row2":47,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の内、特財"},{"row":47,"col":13,"row2":47,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の事業費"},{"row":47,"col":14,"row2":47,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の内、特財"},{"row":48,"col":1,"row2":48,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"事業内容"},{"row":48,"col":11,"row2":48,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の事業費"},{"row":48,"col":12,"row2":48,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の内、特財"},{"row":48,"col":13,"row2":48,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の事業費"},{"row":48,"col":14,"row2":48,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の内、特財"},{"row":49,"col":1,"row2":49,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"事業内容"},{"row":49,"col":11,"row2":49,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の事業費"},{"row":49,"col":12,"row2":49,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の内、特財"},{"row":49,"col":13,"row2":49,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の事業費"},{"row":49,"col":14,"row2":49,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の内、特財"},{"row":50,"col":1,"row2":50,"col2":10,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"事業内容"},{"row":50,"col":11,"row2":50,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の事業費"},{"row":50,"col":12,"row2":50,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の内、特財"},{"row":50,"col":13,"row2":50,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の事業費"},{"row":50,"col":14,"row2":50,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の内、特財"},{"row":51,"col":1,"row2":51,"col2":10,"value":"その他","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":"D9D9D9","renderType":"textarea","renderOptions":null,"dbKey":"事業内容"},{"row":51,"col":11,"row2":51,"col2":11,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の事業費"},{"row":51,"col":12,"row2":51,"col2":12,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R7年度当初予算の内、特財"},{"row":51,"col":13,"row2":51,"col2":13,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の事業費"},{"row":51,"col":14,"row2":51,"col2":14,"value":"","isFormula":false,"formula":"","hasText":false,"blocked":false,"fillColor":null,"renderType":"textarea","renderOptions":null,"dbKey":"R8年度予定の内、特財"},{"row":52,"col":1,"row2":52,"col2":10,"value":"合計","isFormula":false,"formula":"","hasText":true,"blocked":false,"fillColor":"D9D9D9","renderType":null,"renderOptions":null,"dbKey":null},{"row":52,"col":11,"row2":52,"col2":11,"value":"","isFormula":true,"formula":"=SUM(K42:K51)","hasText":false,"blocked":false,"fillColor":"F2E6CE","renderType":null,"renderOptions":null,"dbKey":null},{"row":52,"col":12,"row2":52,"col2":12,"value":"","isFormula":true,"formula":"=SUM(L42:L51)","hasText":false,"blocked":false,"fillColor":"F2E6CE","renderType":null,"renderOptions":null,"dbKey":null},{"row":52,"col":13,"row2":52,"col2":13,"value":"","isFormula":true,"formula":"=SUM(M42:M51)","hasText":false,"blocked":false,"fillColor":"F2E6CE","renderType":null,"renderOptions":null,"dbKey":null},{"row":52,"col":14,"row2":52,"col2":14,"value":"","isFormula":true,"formula":"=SUM(N42:N51)","hasText":false,"blocked":false,"fillColor":"F2E6CE","renderType":null,"renderOptions":null,"dbKey":null}],"manualGroups":[{"row0":42,"row1":51,"name":"今後の計画"}]};
+// 生成された入力フォーム（ツール2）側のロジック。
+// ビルダー（ツール1）が埋め込んだ STRUCTURE（値ではなく確定済みの構造）を読み込み、
+// グリッドを描画し、入力・書き出し・読み込みだけを行う。Excel読み込みや手直し機能は持たない。
+
+let STATE = null;
+
+function $(sel) { return document.querySelector(sel); }
+
+function buildStateFromStructure(structure) {
+  const grid = new Map();
+  structure.cells.forEach(c => {
+    // isFormula/hasText/blocked等はビルダー側で確定済みの値をそのまま使う。
+    const info = Object.assign({}, c);
+    for (let r = c.row; r <= c.row2; r++) {
+      for (let cc = c.col; cc <= c.col2; cc++) {
+        grid.set(r + ',' + cc, info);
+      }
+    }
+  });
+  return {
+    grid,
+    maxRow: structure.maxRow,
+    maxCol: structure.maxCol,
+    widths: structure.widths,
+    heights: structure.heights,
+    sections: structure.sections,
+    fileName: structure.formTitle || 'nyuryoku',
+    manualGroups: structure.manualGroups || [],
+  };
+}
+
+function init() {
+  STATE = buildStateFromStructure(STRUCTURE);
+  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false });
+
+  $('#btn-export').addEventListener('click', () => {
+    const data = GridRender.collectData(STATE);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nyuryoku_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    $('#status').textContent = '書き出しました。';
+  });
+
+  $('#file-load-json').addEventListener('change', (ev) => {
+    const file = ev.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        GridRender.loadDataIntoGrid(STATE, data);
+        $('#status').textContent = '読み込みました: ' + file.name;
+      } catch (e) {
+        $('#status').textContent = 'JSONの読み込みに失敗しました。';
+      }
+    };
+    reader.readAsText(file, 'utf-8');
+  });
+
+  GridRender.setupPasteHandler(STATE, $('#status'));
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('DOMContentLoaded', init);
+  window.__app = {
+    get STATE() { return STATE; },
+    collectData: () => GridRender.collectData(STATE),
+    loadDataIntoGrid: (data) => GridRender.loadDataIntoGrid(STATE, data),
+  };
+}
+
+</script>
+</body>
+</html>

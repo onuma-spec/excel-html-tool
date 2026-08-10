@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>__FORM_TITLE__</title>
+<style>
+  :root{
+    --bg:#f7f5f0; --card:#ffffff; --ink:#2b2b28; --sub:#54514a;
+    --line:#c9c4b4; --accent:#3d6b52; --accent-bg:#e9f2ec;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:"Yu Gothic","Hiragino Sans","Meiryo",sans-serif;}
+  .wrap{max-width:1100px; margin:0 auto; padding:24px 16px 80px;}
+  h1{font-size:1.3rem; margin:0 0 6px;}
+  p.lead{color:var(--sub); font-size:.88rem; margin:0 0 20px; line-height:1.6;}
+  #status{font-size:.85rem; color:var(--accent); min-height:1.4em; margin-bottom:14px;}
+  #export-dir-bar{display:none; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap; padding:8px 10px; background:var(--accent-bg); border:1px solid var(--line); border-radius:6px;}
+  #export-dir-status{font-size:.8rem; color:var(--sub);}
+  #actions{display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center;}
+  button{
+    font-family:inherit; font-size:.88rem; padding:9px 16px; border-radius:6px; border:1px solid var(--accent);
+    background:var(--accent); color:#fff; cursor:pointer;
+  }
+  button.secondary{background:#fff; color:var(--accent);}
+  .hint{font-size:.78rem; color:var(--sub); margin-top:6px;}
+  .ai-note{font-size:.72rem; color:var(--sub); margin-top:18px; opacity:.85;}
+
+  #grid-root{overflow-x:auto; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px;}
+  table.excel-grid{border-collapse:collapse; table-layout:fixed;}
+  table.excel-grid td{border:1px solid #b9b2a0; padding:0; vertical-align:middle; overflow:hidden; position:relative;}
+  th.ruler-col, th.ruler-row-num, th.ruler-corner{
+    background:#dcd8cc; border:1px solid #b9b2a0; font-size:.7rem; font-weight:normal; color:#5a564a;
+    text-align:center; padding:2px; position:sticky; z-index:3;
+  }
+  th.ruler-col, th.ruler-corner{top:0;}
+  th.ruler-row-num, th.ruler-corner{left:0;}
+  th.ruler-corner{z-index:4;}
+  td.cell-label{background:#eeeae0; padding:3px 6px; font-size:.78rem; font-weight:bold; color:#333;}
+  td.cell-label span{display:block; white-space:pre-wrap; word-break:break-all;}
+  td.cell-calc{background:#f2e6ce; padding:3px 20px 3px 6px; font-size:.78rem; text-align:right; color:#7a5a20;}
+  td.cell-blocked{background:#f2f1ec;}
+  td.cell-input{background:#fff;}
+  td.cell-input input, td.cell-input textarea, td.cell-input select{
+    width:100%; height:100%; border:none; padding:3px 6px; font-size:.8rem; font-family:inherit;
+    background:transparent; resize:none;
+  }
+  td.cell-input input.input-number, td.cell-input input.input-currency{text-align:right;}
+  td.cell-input input:focus, td.cell-input textarea:focus, td.cell-input select:focus{
+    outline:2px solid var(--accent); outline-offset:-2px; background:#fffef8;
+  }
+  td.cell-input input:disabled, td.cell-input textarea:disabled, td.cell-input select:disabled{
+    color:#6b6a63; background:#f2f1ec; cursor:not-allowed;
+  }
+
+  #review-actions{display:flex; gap:10px; margin:10px 0; flex-wrap:wrap; align-items:center;}
+  #review-col-toggle{display:flex; flex-wrap:wrap; gap:6px 14px; margin:10px 0; padding:8px 10px; background:var(--card); border:1px solid var(--line); border-radius:6px; font-size:.78rem;}
+  #review-col-toggle label{display:flex; align-items:center; gap:4px; cursor:pointer; white-space:nowrap;}
+  #review-summary{font-size:.82rem; color:var(--sub); margin:8px 0;}
+  #review-table-root{overflow-x:auto;}
+  table.review-table{border-collapse:collapse; width:100%; font-size:.8rem; background:var(--card);}
+  table.review-table th, table.review-table td{border:1px solid var(--line); padding:5px 7px; text-align:left; vertical-align:top;}
+  table.review-table th{background:#eeeae0; white-space:nowrap;}
+  table.review-table td.review-status-done{color:var(--accent); font-weight:bold;}
+  table.review-table textarea{width:100%; min-width:120px; font-family:inherit; font-size:.8rem; box-sizing:border-box;}
+  #review-detail-root-wrap{margin-top:10px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>__FORM_TITLE__</h1>
+  <p class="lead">
+    このフォームに入力し、「入力内容をJSONで書き出す」ボタンから結果を保存してください。<br>
+    通信は一切行いません（ブラウザの中だけで完結します）。保存したJSONファイルは庁内の共有ドライブ等でやり取りできます。
+  </p>
+
+  <div id="export-dir-bar">
+    <button class="secondary" id="btn-pick-export-dir">📁 書き出し先フォルダを指定する（Edge/Chrome）</button>
+    <span id="export-dir-status" class="hint">指定すると、以後のJSON書き出しはダウンロードではなくこのフォルダへ直接保存されます（通常画面・レビュー画面どちらの書き出しにも適用されます）。</span>
+  </div>
+
+  <div id="actions">
+    <button id="btn-export">📋 入力内容をJSONで書き出す</button>
+    <button class="secondary" onclick="document.getElementById('file-load-json').click()">📂 保存済みJSONを読み込む</button>
+    <input type="file" id="file-load-json" accept="application/json" style="display:none">
+    <button class="secondary" id="btn-open-review" style="display:none">📑 複数の入力結果をレビューする</button>
+  </div>
+  <div id="status"></div>
+
+  <div id="grid-root"></div>
+  <p class="hint" id="grid-hint">※ 見出し（灰色）・「（自動計算）」のセルは入力対象外です。空欄セルに直接入力してください。</p>
+
+  <div id="review-root" style="display:none">
+    <p class="lead">
+      複数の事業のJSONをまとめて読み込み、一覧表でレビュー欄（判定・コメント等）を入力できます。
+      各行の「詳細」から、所管部署が入力した内容を閲覧専用で確認できます。
+    </p>
+    <div id="review-actions">
+      <button class="secondary" onclick="document.getElementById('review-file-load').click()">📂 JSONファイルを選ぶ（複数可）</button>
+      <input type="file" id="review-file-load" accept="application/json" multiple style="display:none">
+      <button class="secondary" id="review-btn-pick-dir" style="display:none">📁 フォルダを指定する（Edge/Chrome）</button>
+      <button class="secondary" id="review-btn-refresh" style="display:none">🔄 更新</button>
+      <button class="secondary" id="btn-close-review">← 通常の入力画面に戻る</button>
+    </div>
+    <p class="hint">共有フォルダ（提出用サーバー等）を直接指定できるのはEdge・Chromeのみです。それ以外のブラウザでは、ローカルの専用フォルダにJSONを集めておき、都度「JSONファイルを選ぶ」で選び直してください。</p>
+    <div id="review-col-toggle"></div>
+    <div id="review-summary"></div>
+    <div id="review-table-root"></div>
+  </div>
+
+  <div id="review-detail-root-wrap" style="display:none">
+    <button class="secondary" id="btn-back-to-review-list">← 一覧に戻る</button>
+    <p class="hint">閲覧専用です（所管部署が入力した内容の確認用）。</p>
+    <div id="review-detail-root"></div>
+  </div>
+
+  <div id="review-scratch-root" style="display:none"></div>
+
+  <p class="ai-note">この入力フォームは、Claude（AI）を用いて設計・実装されています。</p>
+</div>
+
+<script>
+/* __CORE_LOGIC__ */
+</script>
+<script>
+/* __GRID_RENDER__ */
+</script>
+<script>
+const STRUCTURE = /* __STRUCTURE__ */;
+/* __FILLER_APP__ */
+</script>
+</body>
+</html>

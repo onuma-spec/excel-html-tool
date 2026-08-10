@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>事務事業評価 入力フォーム ビルダー（試作）</title>
+<style>
+  :root{
+    --bg:#f7f5f0; --card:#ffffff; --ink:#2b2b28; --sub:#54514a;
+    --line:#c9c4b4; --accent:#3d6b52; --accent-bg:#e9f2ec;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:"Yu Gothic","Hiragino Sans","Meiryo",sans-serif;}
+  .wrap{max-width:1100px; margin:0 auto; padding:24px 16px 80px;}
+  h1{font-size:1.3rem; margin:0 0 6px;}
+  p.lead{color:var(--sub); font-size:.88rem; margin:0 0 10px; line-height:1.6;}
+  p.lead.lead-features-title{margin:0 0 4px;}
+  p.lead.lead-note{margin:0 0 20px;}
+  ul.lead-list{color:var(--sub); font-size:.88rem; line-height:1.6; margin:0 0 10px; padding-left:1.3em;}
+  p.step-label{font-size:.8rem; font-weight:bold; color:var(--accent); margin:0 0 6px;}
+  #drop-zone{
+    display:block; border:2px dashed var(--line); border-radius:10px; padding:28px; text-align:center;
+    background:var(--card); cursor:pointer; margin-bottom:14px;
+  }
+  #drop-zone.drag{border-color:var(--accent); background:var(--accent-bg);}
+  #drop-zone p{margin:4px 0; color:var(--sub); font-size:.9rem; pointer-events:none;}
+  #drop-zone p.drop-sub{margin-top:10px; font-size:.76rem;}
+  .drop-link{text-decoration:underline; color:var(--accent);}
+  #status{font-size:.85rem; color:var(--accent); min-height:1.4em; margin-bottom:14px;}
+  button{
+    font-family:inherit; font-size:.88rem; padding:9px 16px; border-radius:6px; border:1px solid var(--accent);
+    background:var(--accent); color:#fff; cursor:pointer;
+  }
+  button.secondary{background:#fff; color:var(--accent);}
+  .hint{font-size:.78rem; color:var(--sub); margin-top:6px;}
+  .ai-note{font-size:.72rem; color:var(--sub); margin-top:18px; opacity:.85;}
+  /* STEPごとの補足説明（長いものだけ、その場で開ける）。見出し・説明を1箇所に
+     まとめるための唯一の場所なので、離れた場所に別の「使い方ガイド」は置かない。 */
+  .step-detail{margin:6px 0 8px; font-size:.8rem;}
+  .step-detail summary{cursor:pointer; color:var(--accent);}
+  .step-detail ul{margin:6px 0 0; padding-left:1.4em; line-height:1.7; color:var(--sub);}
+  .step-detail li{margin-bottom:2px;}
+
+  #grid-root{overflow-x:auto; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px;}
+  table.excel-grid{border-collapse:collapse; table-layout:fixed;}
+  table.excel-grid td{border:1px solid #b9b2a0; padding:0; vertical-align:middle; overflow:hidden; position:relative;}
+  th.ruler-col, th.ruler-row-num, th.ruler-corner{
+    background:#dcd8cc; border:1px solid #b9b2a0; font-size:.7rem; font-weight:normal; color:#5a564a;
+    text-align:center; padding:2px; position:sticky; z-index:3;
+  }
+  th.ruler-col, th.ruler-corner{top:0;}
+  th.ruler-row-num, th.ruler-corner{left:0;}
+  th.ruler-corner{z-index:4;}
+  td.cell-label{background:#eeeae0; padding:3px 6px; font-size:.78rem; font-weight:bold; color:#333;}
+  td.cell-label span{display:block; white-space:pre-wrap; word-break:break-all; cursor:pointer;}
+  td.cell-calc{background:#f2e6ce; padding:3px 20px 3px 6px; font-size:.78rem; text-align:right; color:#7a5a20;}
+  td.cell-blocked{background:#f2f1ec;}
+  td.cell-grouped{box-shadow:inset 0 0 0 9999px rgba(124,92,196,.10); border-left:2px solid #8a6fc0;}
+  td.cell-auto-grouped{box-shadow:inset 0 0 0 9999px rgba(46,124,155,.10); border-left:2px solid #2e7c9b;}
+  td.cell-input{background:#fff;}
+  td.cell-input input, td.cell-input textarea, td.cell-input select{
+    width:100%; height:100%; border:none; padding:3px 20px 3px 6px; font-size:.8rem; font-family:inherit;
+    background:transparent; resize:none;
+  }
+  td.cell-input input.input-number, td.cell-input input.input-currency{text-align:right;}
+  td.cell-input input:focus, td.cell-input textarea:focus, td.cell-input select:focus{
+    outline:2px solid var(--accent); outline-offset:-2px; background:#fffef8;
+  }
+
+  .gear-btn{
+    position:absolute; top:1px; right:1px; width:15px; height:15px; line-height:13px; padding:0;
+    font-size:.62rem; border:1px solid #b9b2a0; border-radius:3px; background:#fff; color:#888;
+    cursor:pointer; opacity:.35; z-index:2;
+  }
+  .gear-btn:hover{opacity:1; color:var(--accent); border-color:var(--accent);}
+
+  /* ツール1は常時複数選択モード：ドラッグ・Ctrl+クリックでのセル範囲選択を常に受け付ける。
+     入力欄はそもそもツール1では使わない（データ入力はツール2の役割）ため、常時クリック不可にする。 */
+  #grid-root{cursor:crosshair; user-select:none;}
+  #grid-root .cell-input input,
+  #grid-root .cell-input textarea,
+  #grid-root .cell-input select{pointer-events:none;}
+  td.cell-selected{outline:2px solid var(--accent); outline-offset:-2px; background:var(--accent-bg) !important;}
+
+  #selection-toolbar{
+    display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+    background:#2b2b28; color:#fff; padding:10px 16px; border-radius:30px; gap:12px; align-items:center;
+    flex-wrap:wrap; max-width:calc(100vw - 24px);
+    box-shadow:0 6px 20px rgba(0,0,0,.3); z-index:50; font-size:.85rem;
+  }
+  #selection-toolbar button{padding:6px 14px; font-size:.82rem;}
+  #selection-toolbar .toolbar-hint{color:#b8b4a6; font-size:.74rem;}
+  /* 書き出し前チェックのサイドパネルが右側に固定幅を確保している間は、
+     ツールバーの中央基準を画面全体ではなく「パネルを除いた左側の見える範囲」に合わせる
+     （そうしないと右側がパネルの裏に隠れてはみ出して見える）。 */
+  body.side-panel-open #selection-toolbar{ left: calc(50% - 250px); max-width: calc(100vw - 524px); }
+
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:100;
+  }
+  .modal-box{
+    background:#fff; border-radius:10px; padding:20px 22px; width:min(480px, 90vw);
+    box-shadow:0 8px 30px rgba(0,0,0,.25);
+  }
+  .modal-box h3{margin:0 0 14px; font-size:1rem;}
+  .modal-box label{display:block; font-size:.8rem; color:var(--sub); margin:10px 0 4px;}
+  .modal-box select, .modal-box input, .modal-box textarea{
+    width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:6px; font-size:.85rem; font-family:inherit;
+    box-sizing:border-box;
+  }
+  .modal-box .m-note{font-size:.74rem; color:var(--sub); line-height:1.5; margin:6px 0 0;}
+  .modal-box .m-note.m-warn{color:#a04a2a;}
+  .modal-box .m-note.modal-divider{border-top:1px solid var(--line); margin-top:16px; padding-top:14px;}
+  .modal-box textarea{resize:vertical; min-height:120px;}
+  .m-btnrow{display:flex; gap:8px; margin-top:18px; justify-content:flex-end; flex-wrap:wrap;}
+  .export-dir-row{display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap;}
+  .export-dir-row .m-note{margin:0;}
+  .modal-box.modal-box-wide{width:min(640px, 92vw);}
+
+  /* セル設定ウィザードの「セルの種類」選択ボタン群 */
+  .wizard-choices{display:flex; flex-wrap:wrap; gap:8px; margin:4px 0 16px;}
+  .wizard-choices button{padding:10px 14px; white-space:nowrap;}
+  .wizard-group-title{font-size:.74rem; color:var(--sub); margin:8px 0 2px;}
+  .wizard-group-title:first-of-type{margin-top:4px;}
+
+  /* 書き出し前チェックは、グリッドのセル位置と見比べながら確認することが多いため、
+     グリッドを覆う中央モーダルではなく右側に常駐するサイドパネルとして表示する。
+     bodyに右余白を確保してページ全体をずらすことで、グリッドと物理的に重ならないようにする。 */
+  body.side-panel-open{padding-right:min(500px, 92vw); transition:padding-right .15s ease;}
+  .side-panel{
+    position:fixed; top:0; right:0; height:100vh; width:min(500px, 92vw); z-index:100;
+    background:#fff; box-shadow:-6px 0 24px rgba(0,0,0,.18); border-left:1px solid var(--line);
+    overflow-y:auto; padding:18px 20px 24px; box-sizing:border-box;
+  }
+  .side-panel h3{margin:0 0 14px; font-size:1rem;}
+  .side-panel .m-note{font-size:.74rem; color:var(--sub); line-height:1.5; margin:6px 0 0;}
+  .side-panel .m-note.m-warn{color:#a04a2a;}
+  .side-panel-header{display:flex; align-items:flex-start; justify-content:space-between; gap:10px;}
+  .side-panel-close{
+    flex-shrink:0; background:none; border:none; color:var(--sub); font-size:1rem; line-height:1;
+    padding:2px 6px; cursor:pointer;
+  }
+  .side-panel-close:hover{color:var(--ink);}
+  .unreachable-list{margin:12px 0; max-height:260px; overflow-y:auto; border:1px solid var(--line); border-radius:6px;}
+  .unreachable-item{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--line); font-size:.8rem;}
+  .unreachable-item:last-child{border-bottom:none;}
+  .unreachable-item button{font-size:.75rem; padding:5px 10px; white-space:nowrap;}
+  .mapping-section{margin:14px 0;}
+  .mapping-block{margin-bottom:16px;}
+  .mapping-block-title{font-size:.82rem; font-weight:bold; color:var(--ink); margin:0 0 2px;}
+  .mapping-list{margin:8px 0; max-height:220px; overflow:auto; border:1px solid var(--line); border-radius:6px;}
+  table.mapping-table{width:100%; border-collapse:collapse; font-size:.78rem;}
+  .mapping-table th{
+    position:sticky; top:0; background:var(--bg); text-align:left; font-weight:bold; color:var(--ink);
+    padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap;
+  }
+  .mapping-table td{padding:5px 8px; border-bottom:1px solid var(--line); vertical-align:middle;}
+  .mapping-table tbody tr:last-child td{border-bottom:none;}
+  .mapping-ref{font-size:.72rem; padding:4px 8px; white-space:nowrap;}
+  .mapping-context{color:var(--sub); white-space:nowrap;}
+  .mapping-table td input{width:100%; min-width:100px; padding:4px 6px; font-size:.78rem; border:1px solid var(--line); border-radius:4px; font-family:inherit; box-sizing:border-box;}
+  /* グループ内で項目名がセルごとに食い違っている（一部だけ設定済み等）ことを示す印。
+     空欄プレースホルダーだけでは見落としやすいため、行の背景も薄く色付けする。 */
+  tr.mapping-mixed{background:rgba(160,74,42,.07);}
+  tr.mapping-mixed td input{border-color:#a04a2a;}
+  /* 自動名（colN）のまま＝Excelの見出しに由来しない意味の無い名前の欄を目立たせる印。
+     mixed（食い違い）とは別の意味の状態なので、色味を変えて排他的に付ける。 */
+  tr.mapping-generic{background:rgba(184,134,11,.08);}
+  tr.mapping-generic td input{border-color:#b8860a;}
+  .mapping-block > button{margin-top:2px;}
+  .form-title-row{margin:14px 0;}
+  .form-title-row label{display:block; font-size:.78rem; color:var(--sub); margin-bottom:4px;}
+  .form-title-row input{width:100%; max-width:420px; padding:6px 8px; font-size:.85rem; border:1px solid var(--line); border-radius:4px; font-family:inherit; box-sizing:border-box;}
+  .filename-field-picker{margin:14px 0;}
+  .filename-field-list{display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:6px; max-height:160px; overflow-y:auto; border:1px solid var(--line); border-radius:6px; padding:8px 10px;}
+  .filename-field-item{display:flex; align-items:center; gap:5px; font-size:.78rem; cursor:pointer; white-space:nowrap;}
+  .export-preview{margin-top:14px; font-size:.8rem;}
+  .export-preview h4{margin:0 0 6px; font-size:.86rem; color:var(--ink);}
+  .preview-tables{max-height:380px; overflow-y:auto; margin-top:8px; border:1px solid var(--line); border-radius:6px; padding:4px 10px;}
+  .preview-sec-title{margin:12px 0 4px; font-size:.82rem; color:var(--ink); border-bottom:1px solid var(--line); padding-bottom:2px;}
+  .preview-sec-title:first-child{margin-top:6px;}
+  .preview-group-title{margin:8px 0 4px; font-size:.76rem; color:var(--sub);}
+  .preview-table-wrap{overflow-x:auto; margin-bottom:8px;}
+  table.preview-table{border-collapse:collapse; width:100%; font-size:.72rem;}
+  table.preview-table th, table.preview-table td{border:1px solid var(--line); padding:3px 6px; text-align:left; white-space:nowrap;}
+  table.preview-table th{background:var(--bg); position:sticky; top:0;}
+  .export-preview-raw{margin-top:8px;}
+  .export-preview-raw summary{font-size:.74rem; color:var(--sub);}
+  .export-preview-raw pre{max-height:200px; overflow:auto; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px; font-size:.7rem; white-space:pre-wrap; word-break:break-all; margin-top:8px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>事務事業評価 入力フォーム ビルダー（試作・ツール1）</h1>
+  <p class="lead">事務事業評価シート等のExcelテンプレート（.xlsx）を読み込み、入力フォーム（.html）に変換します。</p>
+  <p class="lead lead-features-title">本ツールの特徴</p>
+  <ul class="lead-list">
+    <li>通信は一切行わず、ブラウザの中だけで完結します</li>
+    <li>入力フォーム（.html）は、入力情報をJSON形式で出力し、手軽にデータベース化できます</li>
+  </ul>
+  <p class="lead lead-note">※ このページ自体では値の入力はできません（入力は入力フォーム（.html）側で行います）</p>
+
+  <p class="step-label" data-step-label="0"></p>
+  <label id="drop-zone" for="file-input">
+    <p>ここに.xlsxファイル、または入力フォーム（.html）を<br>ドラッグ＆ドロップ、または<span class="drop-link">ファイルを選択</span></p>
+    <p class="drop-sub">入力フォーム（.html）の場合は、続きから手直しできます（前年度のフォームを翌年度用に作り直す場合など）</p>
+    <input type="file" id="file-input" accept=".xlsx,.html,.htm" style="display:none;">
+  </label>
+  <div id="status"></div>
+
+  <p class="step-label" data-step-label="1"></p>
+  <p class="hint" style="margin:-2px 0 8px;">読み込み時に自動で設定されていますが、セルごとに意図と違う箇所がないかここで確認・調整してください。</p>
+  <div data-step-detail="1"></div>
+  <div id="grid-root"></div>
+  <p class="hint">
+    ※ 見出しは灰色、入力欄は白色、「（自動計算）」は数式セルです。この画面では値は入力できません。<br>
+    ※ 紫の縦線は手動グループ化済みの範囲、青緑の縦線はExcelのタテ結合から自動でグループ化された範囲です。
+  </p>
+  <p class="ai-note">本ツールは、Claude（AI）を用いて設計・実装されています。</p>
+</div>
+
+<div id="selection-toolbar">
+  <span id="selection-count"></span>
+  <span class="toolbar-hint">Ctrl+ドラッグ／Ctrl+クリックでさらに選択を追加できます</span>
+  <button id="btn-selection-apply">まとめて設定</button>
+  <button class="secondary" id="btn-selection-group">🗂 グループ化する</button>
+  <button class="secondary" id="btn-selection-clear">選択解除</button>
+</div>
+
+<script>
+/* __SHEETJS__ */
+</script>
+<script>
+/* __CORE_LOGIC__ */
+</script>
+<script>
+/* __GRID_RENDER__ */
+</script>
+<script>
+/* __BUILDER_APP__ */
+</script>
+</body>
+</html>
