@@ -51,71 +51,132 @@
   td.cell-input input:disabled, td.cell-input textarea:disabled, td.cell-input select:disabled{
     color:#6b6a63; background:#f2f1ec; cursor:not-allowed;
   }
+  td.cell-input.cell-field-primary{background:#eef6f1;}
+  td.cell-input.cell-field-review{background:#fdf3e6;}
+  .legend-item{display:inline-flex; align-items:center; gap:4px; margin-right:16px;}
+  .legend-swatch{display:inline-block; width:12px; height:12px; border:1px solid #b9b2a0; border-radius:2px;}
+  .legend-swatch-primary{background:#eef6f1;}
+  .legend-swatch-review{background:#fdf3e6;}
 
   #review-actions{display:flex; gap:10px; margin:10px 0; flex-wrap:wrap; align-items:center;}
   #review-col-toggle{display:flex; flex-wrap:wrap; gap:6px 14px; margin:10px 0; padding:8px 10px; background:var(--card); border:1px solid var(--line); border-radius:6px; font-size:.78rem;}
   #review-col-toggle label{display:flex; align-items:center; gap:4px; cursor:pointer; white-space:nowrap;}
+  #review-status-filter{font-size:.78rem; margin:8px 0;}
+  #review-status-filter select{font-family:inherit; font-size:.8rem; padding:2px 4px;}
   #review-summary{font-size:.82rem; color:var(--sub); margin:8px 0;}
+  #review-bulk-print-bar{display:flex; gap:10px; align-items:center; margin:8px 0; flex-wrap:wrap;}
+  #bulk-print-root{display:none;}
+  .bulk-print-record{margin-bottom:24px;}
+  .bulk-print-record h2{font-size:1rem; margin:0 0 8px;}
   #review-table-root{overflow-x:auto;}
   table.review-table{border-collapse:collapse; width:100%; font-size:.8rem; background:var(--card);}
   table.review-table th, table.review-table td{border:1px solid var(--line); padding:5px 7px; text-align:left; vertical-align:top;}
-  table.review-table th{background:#eeeae0; white-space:nowrap;}
+  table.review-table th{background:#eeeae0; white-space:nowrap; position:relative;}
+  .col-filter{display:inline-block; font-weight:normal;}
+  .col-filter summary{cursor:pointer; list-style:none; display:inline-block; padding:0 2px;}
+  .col-filter summary::-webkit-details-marker{display:none;}
+  .col-filter-panel{
+    position:absolute; z-index:10; top:100%; left:0; margin-top:2px; min-width:140px; max-height:220px;
+    overflow:auto; background:#fff; border:1px solid var(--line); border-radius:4px; padding:6px 8px;
+    box-shadow:0 2px 6px rgba(0,0,0,.15); font-size:.76rem;
+  }
+  .col-filter-panel label{display:flex; align-items:center; gap:4px; white-space:nowrap; padding:2px 0; cursor:pointer;}
   table.review-table td.review-status-done{color:var(--accent); font-weight:bold;}
   table.review-table textarea{width:100%; min-width:120px; font-family:inherit; font-size:.8rem; box-sizing:border-box;}
   #review-detail-root-wrap{margin-top:10px;}
+  #review-detail-actions{display:flex; gap:10px; margin:10px 0; flex-wrap:wrap; align-items:center;}
+
+  @media print{
+    .no-print{display:none !important;}
+    body{background:#fff;}
+    .wrap{max-width:none; padding:0; margin:0;}
+    #grid-root, #review-table-root{overflow:visible; border:none; padding:0;}
+    th.ruler-col, th.ruler-row-num, th.ruler-corner{position:static;}
+
+    /* 一括印刷中は#bulk-print-root以外の直下要素を全て隠し、スナップショットだけを
+       印刷対象にする（no-printクラスの有無に関わらず強制的に隠す）。 */
+    body.bulk-printing .wrap > *:not(#bulk-print-root){display:none !important;}
+    body.bulk-printing #bulk-print-root{display:block;}
+    .bulk-print-record{page-break-after:always;}
+    .bulk-print-record:last-child{page-break-after:auto;}
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>R7年度実施 事務事業評価</h1>
-  <p class="lead">
+  <h1 class="no-print">R7年度実施 事務事業評価</h1>
+  <p class="lead no-print">
     このフォームに入力し、「入力内容をJSONで書き出す」ボタンから結果を保存してください。<br>
     通信は一切行いません（ブラウザの中だけで完結します）。保存したJSONファイルは庁内の共有ドライブ等でやり取りできます。
   </p>
 
-  <div id="export-dir-bar">
+  <div id="export-dir-bar" class="no-print">
     <button class="secondary" id="btn-pick-export-dir">📁 書き出し先フォルダを指定する（Edge/Chrome）</button>
     <span id="export-dir-status" class="hint">指定すると、以後のJSON書き出しはダウンロードではなくこのフォルダへ直接保存されます（通常画面・レビュー画面どちらの書き出しにも適用されます）。</span>
   </div>
 
-  <div id="actions">
+  <div id="actions" class="no-print">
     <button id="btn-export">📋 入力内容をJSONで書き出す</button>
     <button class="secondary" onclick="document.getElementById('file-load-json').click()">📂 保存済みJSONを読み込む</button>
     <input type="file" id="file-load-json" accept="application/json" style="display:none">
-    <button class="secondary" id="btn-open-review" style="display:none">📑 複数の入力結果をレビューする</button>
+    <button class="secondary" id="btn-open-review" style="display:none">📑 2次以降用一括入力画面へ移動する</button>
+    <button class="secondary" id="btn-print-grid">🖨 この画面を印刷する</button>
   </div>
-  <div id="status"></div>
+  <div id="status" class="no-print"></div>
 
   <div id="grid-root"></div>
-  <p class="hint" id="grid-hint">※ 見出し（灰色）・「（自動計算）」のセルは入力対象外です。空欄セルに直接入力してください。</p>
+  <p class="hint no-print" id="grid-hint">※ 見出し（灰色）・「（自動計算）」のセルは入力対象外です。空欄セルに直接入力してください。</p>
+  <p class="hint no-print" id="field-legend" style="display:none">
+    <span class="legend-item"><span class="legend-swatch legend-swatch-primary"></span>1次入力欄</span>
+    <span class="legend-item"><span class="legend-swatch legend-swatch-review"></span>2次以降入力欄（レビュー欄。どのセルも入力は自由ですが、色は入力担当の目安です）</span>
+  </p>
 
   <div id="review-root" style="display:none">
-    <p class="lead">
+    <p class="lead no-print">
       複数の事業のJSONをまとめて読み込み、一覧表でレビュー欄（判定・コメント等）を入力できます。
-      各行の「詳細」から、所管部署が入力した内容を閲覧専用で確認できます。
+      各行の「詳細」から、所管部署が入力した内容を確認・編集できます。
     </p>
-    <div id="review-actions">
+    <div id="review-actions" class="no-print">
       <button class="secondary" onclick="document.getElementById('review-file-load').click()">📂 JSONファイルを選ぶ（複数可）</button>
       <input type="file" id="review-file-load" accept="application/json" multiple style="display:none">
       <button class="secondary" id="review-btn-pick-dir" style="display:none">📁 フォルダを指定する（Edge/Chrome）</button>
       <button class="secondary" id="review-btn-refresh" style="display:none">🔄 更新</button>
       <button class="secondary" id="btn-close-review">← 通常の入力画面に戻る</button>
     </div>
-    <p class="hint">共有フォルダ（提出用サーバー等）を直接指定できるのはEdge・Chromeのみです。それ以外のブラウザでは、ローカルの専用フォルダにJSONを集めておき、都度「JSONファイルを選ぶ」で選び直してください。</p>
-    <div id="review-col-toggle"></div>
-    <div id="review-summary"></div>
+    <p class="hint no-print">共有フォルダ（提出用サーバー等）を直接指定できるのはEdge・Chromeのみです。それ以外のブラウザでは、ローカルの専用フォルダにJSONを集めておき、都度「JSONファイルを選ぶ」で選び直してください。</p>
+    <div id="review-col-toggle" class="no-print"></div>
+    <div id="review-status-filter" class="no-print">
+      <label>状態で絞り込み：
+        <select id="review-status-select">
+          <option value="all">すべて</option>
+          <option value="undone">未完了</option>
+          <option value="done">完了</option>
+        </select>
+      </label>
+    </div>
+    <div id="review-summary" class="no-print"></div>
+    <div id="review-bulk-print-bar" class="no-print">
+      <button class="secondary" id="btn-bulk-print">🖨 絞り込み結果を一括印刷</button>
+      <span class="hint">現在の絞り込み結果（列フィルタ・状態）を対象に、1件ずつページを分けて印刷します。</span>
+    </div>
     <div id="review-table-root"></div>
   </div>
 
+  <div id="bulk-print-root"></div>
+
   <div id="review-detail-root-wrap" style="display:none">
-    <button class="secondary" id="btn-back-to-review-list">← 一覧に戻る</button>
-    <p class="hint">閲覧専用です（所管部署が入力した内容の確認用）。</p>
+    <div id="review-detail-actions" class="no-print">
+      <button id="btn-save-detail">💾 保存して一覧に戻る</button>
+      <button class="secondary" id="btn-back-to-review-list">← 保存せずに一覧に戻る</button>
+      <button class="secondary" id="btn-print-detail">🖨 この画面を印刷する</button>
+    </div>
+    <p class="hint no-print">この画面でもすべてのセルに入力・修正できます。色分けは1次／2次以降どちらの入力欄かの目安です。</p>
     <div id="review-detail-root"></div>
   </div>
 
   <div id="review-scratch-root" style="display:none"></div>
 
-  <p class="ai-note">この入力フォームは、Claude（AI）を用いて設計・実装されています。</p>
+  <p class="ai-note no-print">この入力フォームは、Claude（AI）を用いて設計・実装されています。</p>
 </div>
 
 <script>
@@ -872,6 +933,9 @@ function buildInputControl(info, rowspan, colspan) {
  * opts.selected（Set<'row,col'>）を渡すと該当セルに .cell-selected を付ける。
  * opts.readonly=true のとき、全ての入力欄（input/textarea/select）にdisabledを付ける
  * （レビュー画面で所管部署の入力内容を閲覧専用で表示する用途）。
+ * opts.reviewFieldIds（Set<cellId>）を渡すと、入力セルごとに「1次入力欄」
+ * （cell-field-primary）／「2次以降入力欄」（cell-field-review）のクラスを付ける
+ * （STRUCTURE.reviewFieldsが1件も無い様式では区別する意味が無いため、Setが空なら何も付けない）。
  * 戻り値：このグリッドに含まれる数式セルのinfo配列（再計算対象として呼び出し元が保持する）。
  */
 function renderGrid(rootEl, state, opts) {
@@ -957,6 +1021,9 @@ function renderGrid(rootEl, state, opts) {
         // renderType別に別々の分岐を持たず、描画後に一律disabledを付けるだけにする
         // （buildInputControl側に手を入れると通常モードとの分岐が増えて事故りやすいため）。
         if (opts.readonly) inputEl.setAttribute('disabled', 'disabled');
+        if (opts.reviewFieldIds && opts.reviewFieldIds.size > 0) {
+          td.classList.add(opts.reviewFieldIds.has(CoreLogic.cellId(info)) ? 'cell-field-review' : 'cell-field-primary');
+        }
         td.appendChild(inputEl);
       }
       if (opts.selected && opts.selected.has(cellKey)) td.classList.add('cell-selected');
@@ -1344,6 +1411,11 @@ async function pickExportDirectory() {
   $('#export-dir-status').textContent = `書き出し先：${EXPORT_DIR_HANDLE.name}（以後このフォームのJSONはここへ直接保存されます）`;
 }
 
+// 通常グリッド・詳細画面のどちらでも同じ「1次/2次以降」の色分けを使うための共通Set。
+function reviewFieldIdSet() {
+  return new Set(STRUCTURE.reviewFields || []);
+}
+
 function buildStateFromStructure(structure) {
   const grid = new Map();
   structure.cells.forEach(c => {
@@ -1375,10 +1447,16 @@ function findMissingRequiredFields() {
   });
 }
 
-// 未入力チェックのメッセージ用に、cellIdから人間が読めるラベルを求める。
-// ビルダー側のmappingCurrentName相当の情報はここでは持っていないため、簡易に
-// dbKey（項目名マッピング済みならそれ）→セル番地の順で表示する。
+// 未入力チェック・一覧表の列見出し等で、cellIdから人間が読めるラベルを求める。
+// builder_app.jsのserializeStructure()と同じCoreLogic.findMappingTargets()を使い、
+// 「dbKey（項目名マッピング済みならそれ）→行見出し文字/列見出し文字（autoName）→
+// セル番地」の順でフォールバックする。以前はautoNameを見ていなかったため、
+// 「1行1見出し1値」のようなdbKey未設定の項目がE5等の生セル番地でしか表示できなかった
+// （行の見出し文字「部署名」等が本来使えたはずだった、という既知の手抜き実装）。
 function labelForCellId(id) {
+  const { singles } = CoreLogic.findMappingTargets(STATE.grid, STATE.sections, STATE.maxCol, STATE.manualGroups);
+  const target = singles.find(t => CoreLogic.cellId(t.cells[0]) === id);
+  if (target) return target.cells[0].dbKey || target.autoName || CoreLogic.cellRef(target.cells[0]);
   for (const info of STATE.grid.values()) {
     if (CoreLogic.cellId(info) === id) return info.dbKey || CoreLogic.cellRef(info);
   }
@@ -1415,7 +1493,16 @@ function readFileAsText(file) {
 // records: [{ fileName, data(読み込んだ生JSON), displayValues({cellId:value}), reviewValues({cellId:value}) }]
 // visibleCols: 一覧表に列として表示するdisplayCandidateFieldsの部分集合（初期値は全件表示）。
 // dirHandle: showDirectoryPicker()で選んだFileSystemDirectoryHandle（Chromium限定）。
-const REVIEW = { records: [], visibleCols: new Set(), dirHandle: null };
+// colFilters: Map<cellId, Set<選択中の値>>（Excel風のオートフィルタ。未操作の列はエントリ無し＝絞り込みなし）。
+// statusFilter: 'all'|'done'|'undone'（レビュー欄が全て埋まっているかによる絞り込み）。
+const REVIEW = { records: [], visibleCols: new Set(), dirHandle: null, colFilters: new Map(), statusFilter: 'all' };
+
+// 詳細画面（openReviewDetail）で現在編集中のレコード・グリッド状態。
+// 全セル誰でも編集可能という方針のため、詳細画面は所管部署の入力を閲覧するだけでなく
+// 一件ずつ入力する経路としても使う。保存時にDETAIL_STATEから値を読み出し、
+// DETAIL_RECORDへ書き戻す（破棄する場合は単に画面を閉じるだけでよい）。
+let DETAIL_RECORD = null;
+let DETAIL_STATE = null;
 
 // STRUCTURE.cells（同じ様式）を土台に、渡されたdataを読み込んだ「使い捨てのグリッド」を
 // #review-scratch-rootに描画→指定したcellIdの現在値を読み取る→片付ける、という
@@ -1516,30 +1603,124 @@ function renderColToggle() {
   });
 }
 
+function currentVisibleColIds() {
+  return (STRUCTURE.displayCandidateFields || []).filter(id => REVIEW.visibleCols.has(id));
+}
+
+// 今読み込まれている全レコードから、その列（表示中の識別列）が実際に取りうる値の
+// 一覧を重複なく求める（Excelのオートフィルタのドロップダウン一覧と同じ考え方）。
+function uniqueColumnValues(id) {
+  const set = new Set();
+  REVIEW.records.forEach(r => set.add(r.displayValues[id] || ''));
+  return Array.from(set).sort((a, b) => String(a).localeCompare(String(b), 'ja'));
+}
+
+// 列フィルタ（REVIEW.colFilters: Map<cellId, Set<選択中の値>>）とステータス絞り込み
+// （REVIEW.statusFilter）の両方を満たすレコードだけを返す。列フィルタは複数列に
+// またがる場合AND条件（Excelと同じ）。非表示列のフィルタは無視する（列を隠したら
+// その列による絞り込みも見えなくなるため、直感に反しないようにする）。
+function matchesColFilters(record) {
+  for (const id of currentVisibleColIds()) {
+    const allowed = REVIEW.colFilters.get(id);
+    if (!allowed) continue; // このセッションでまだ操作されていない列＝絞り込みなし
+    if (!allowed.has(record.displayValues[id] || '')) return false;
+  }
+  return true;
+}
+
+function matchesStatusFilter(record) {
+  if (REVIEW.statusFilter === 'done') return isRecordComplete(record);
+  if (REVIEW.statusFilter === 'undone') return !isRecordComplete(record);
+  return true;
+}
+
+function filteredRecords() {
+  return REVIEW.records.filter(r => matchesColFilters(r) && matchesStatusFilter(r));
+}
+
+function hasActiveFilters() {
+  return REVIEW.colFilters.size > 0 || REVIEW.statusFilter !== 'all';
+}
+
+function updateReviewSummary(filtered) {
+  const summaryRoot = $('#review-summary');
+  const doneCount = filtered.filter(isRecordComplete).length;
+  const base = `${filtered.length}件中 ${doneCount}件 レビュー完了`;
+  summaryRoot.textContent = hasActiveFilters() ? `${base}（絞り込み中・全${REVIEW.records.length}件）` : base;
+}
+
+// 列見出しの▼（Excel風のオートフィルタ）。<details>を使うことで開閉状態の管理・
+// 外側クリックでの自動close処理を独自に書かずに済ませる（ネイティブ挙動に委ねる）。
+// チェック変更時はrenderReviewTable()（thead含む全体再描画）ではなくrenderReviewBody()
+// （tbodyのみ再描画）だけを呼ぶ：thead全体を再描画すると<details>が毎回閉じてしまい、
+// 複数の値を続けてチェック/解除する操作が成立しなくなるため。
+function buildColFilterDetails(id) {
+  const values = uniqueColumnValues(id);
+  const details = el('details', { class: 'col-filter' });
+  details.appendChild(el('summary', { text: '▼', title: '値で絞り込む' }));
+  const panel = el('div', { class: 'col-filter-panel' });
+  values.forEach((v) => {
+    const inputId = 'colfilter_' + id + '_' + values.indexOf(v);
+    const checkbox = el('input', { type: 'checkbox', id: inputId });
+    const currentAllowed = REVIEW.colFilters.get(id);
+    if (!currentAllowed || currentAllowed.has(v)) checkbox.setAttribute('checked', 'checked');
+    checkbox.addEventListener('change', () => {
+      const allowed = new Set(REVIEW.colFilters.get(id) || values);
+      if (checkbox.checked) allowed.add(v); else allowed.delete(v);
+      REVIEW.colFilters.set(id, allowed);
+      renderReviewBody();
+    });
+    panel.appendChild(el('label', {}, [checkbox, document.createTextNode(v === '' ? '（空欄）' : v)]));
+  });
+  details.appendChild(panel);
+  return details;
+}
+
 function renderReviewTable() {
   const tableRoot = $('#review-table-root');
   tableRoot.innerHTML = '';
-  const summaryRoot = $('#review-summary');
-  const doneCount = REVIEW.records.filter(isRecordComplete).length;
-  summaryRoot.textContent = `${REVIEW.records.length}件中 ${doneCount}件 レビュー完了`;
 
-  if (REVIEW.records.length === 0) return;
+  if (REVIEW.records.length === 0) {
+    updateReviewSummary([]);
+    return;
+  }
 
-  const visibleColIds = (STRUCTURE.displayCandidateFields || []).filter(id => REVIEW.visibleCols.has(id));
+  const visibleColIds = currentVisibleColIds();
   const reviewFieldIds = STRUCTURE.reviewFields || [];
 
   const table = el('table', { class: 'review-table' });
   const thead = el('thead');
   const headRow = el('tr');
-  visibleColIds.forEach(id => headRow.appendChild(el('th', { text: labelForCellId(id) })));
+  visibleColIds.forEach((id) => {
+    const th = el('th');
+    th.appendChild(document.createTextNode(labelForCellId(id) + ' '));
+    th.appendChild(buildColFilterDetails(id));
+    headRow.appendChild(th);
+  });
   reviewFieldIds.forEach(id => headRow.appendChild(el('th', { text: labelForCellId(id) })));
   headRow.appendChild(el('th', { text: '状態' }));
   headRow.appendChild(el('th', { text: '' }));
   thead.appendChild(headRow);
   table.appendChild(thead);
 
-  const tbody = el('tbody');
-  REVIEW.records.forEach((record) => {
+  const tbody = el('tbody', { id: 'review-tbody' });
+  table.appendChild(tbody);
+  tableRoot.appendChild(table);
+
+  renderReviewBody();
+}
+
+// tbodyだけを絞り込み結果で再描画する（theadは触らない。理由はbuildColFilterDetails参照）。
+function renderReviewBody() {
+  const tbody = document.getElementById('review-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  const visibleColIds = currentVisibleColIds();
+  const reviewFieldIds = STRUCTURE.reviewFields || [];
+  const filtered = filteredRecords();
+
+  filtered.forEach((record) => {
     const tr = el('tr');
     visibleColIds.forEach(id => tr.appendChild(el('td', { text: record.displayValues[id] || '' })));
     reviewFieldIds.forEach((id) => {
@@ -1553,7 +1734,7 @@ function renderReviewTable() {
           statusTd.textContent = complete ? '✅完了' : '未完了';
           statusTd.classList.toggle('review-status-done', complete);
         }
-        summaryRoot.textContent = `${REVIEW.records.length}件中 ${REVIEW.records.filter(isRecordComplete).length}件 レビュー完了`;
+        updateReviewSummary(filteredRecords());
       });
       const td = el('td'); td.appendChild(textarea);
       tr.appendChild(td);
@@ -1579,13 +1760,54 @@ function renderReviewTable() {
 
     tbody.appendChild(tr);
   });
-  table.appendChild(tbody);
-  tableRoot.appendChild(table);
+
+  updateReviewSummary(filtered);
 }
 
 function renderReviewList() {
   renderColToggle();
   renderReviewTable();
+}
+
+// 1件分のレコードを、印刷用の読み取り専用スナップショット（<div class="bulk-print-record">）
+// として組み立てる。renderGrid/loadDataIntoGridで#review-scratch-rootに実描画してから
+// テーブルをクローンし、id属性を全て取り除く（複数レコードを同時にDOMへ並べるため、
+// 同じcellId体系のid属性がそのまま残ると重複IDになってしまうことを避ける）。
+function buildBulkPrintSection(record) {
+  const scratch = $('#review-scratch-root');
+  const tempState = buildStateFromStructure(STRUCTURE);
+  GridRender.renderGrid(scratch, tempState, { showGear: false, readonly: true, reviewFieldIds: reviewFieldIdSet() });
+  GridRender.loadDataIntoGrid(tempState, record.data || {});
+  const table = scratch.querySelector('table');
+  const clone = table.cloneNode(true);
+  clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+  scratch.innerHTML = '';
+
+  const section = el('div', { class: 'bulk-print-record' });
+  section.appendChild(el('h2', { text: record.fileName }));
+  section.appendChild(clone);
+  return section;
+}
+
+// 現在の絞り込み結果（列フィルタ・ステータス絞り込み）を対象に、1件ずつページを
+// 分けて一括印刷する。#bulk-print-rootへスナップショットを組み立て、body.bulk-printing
+// を付けてからwindow.print()を呼ぶ（表示の切替は@media print側のCSSに任せる）。
+function bulkPrintFiltered() {
+  const filtered = filteredRecords();
+  const root = $('#bulk-print-root');
+  root.innerHTML = '';
+  filtered.forEach((record) => root.appendChild(buildBulkPrintSection(record)));
+  document.body.classList.add('bulk-printing');
+  window.print();
+}
+
+// afterprintで後片付け（印刷ダイアログを閉じた後、bulk-printingクラスとスナップショットを除去）。
+// jsdomの自動テストではwindow.printをモックに差し替えるため実際には発火しないが、
+// 実ブラウザでの印刷完了後に画面を元の状態へ戻すために必要。
+function cleanupBulkPrint() {
+  document.body.classList.remove('bulk-printing');
+  const root = $('#bulk-print-root');
+  if (root) root.innerHTML = '';
 }
 
 // 画面切替：'normal'（通常の1件入力）／'list'（レビュー一覧表）／'detail'（レビュー詳細・閲覧専用）。
@@ -1608,20 +1830,42 @@ function enterReviewMode() {
 
 function exitReviewMode() {
   $('#review-detail-root').innerHTML = '';
-  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false });
+  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
   showScreen('normal');
 }
 
+// 詳細画面は「所管部署の入力を閲覧するだけ」ではなく、通常グリッド画面と同じく
+// 全セル編集可能にする（全セル誰でも入力できる、という方針）。1件ずつ入力したい
+// レビュアー向けの経路として、一覧表のインライン編集と並ぶ選択肢になる。
 function openReviewDetail(record) {
-  const detailState = buildStateFromStructure(STRUCTURE);
-  GridRender.renderGrid($('#review-detail-root'), detailState, { showGear: false, readonly: true });
-  GridRender.loadDataIntoGrid(detailState, record.data || {});
+  DETAIL_RECORD = record;
+  DETAIL_STATE = buildStateFromStructure(STRUCTURE);
+  GridRender.renderGrid($('#review-detail-root'), DETAIL_STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
+  GridRender.loadDataIntoGrid(DETAIL_STATE, record.data || {});
   showScreen('detail');
 }
 
+// 詳細画面での編集を破棄して一覧に戻る（保存しない）。
 function backToReviewListFromDetail() {
   $('#review-detail-root').innerHTML = '';
+  DETAIL_RECORD = null;
+  DETAIL_STATE = null;
   showScreen('list');
+}
+
+// 詳細画面での編集内容を、対象レコードのdata/displayValues/reviewValuesへ書き戻し、
+// 一覧を再描画してから一覧画面に戻る。書き戻すのはレビュー欄だけでなく全項目
+// （所管部署欄も含む）で、詳細画面で行った変更はすべて反映される。
+function saveDetailAndBackToList() {
+  if (!DETAIL_RECORD || !DETAIL_STATE) return;
+  const record = DETAIL_RECORD;
+  const merged = GridRender.collectData(DETAIL_STATE);
+  record.data = merged;
+  record.displayValues = extractFieldValues(merged, STRUCTURE.displayCandidateFields || []);
+  record.reviewValues = extractFieldValues(merged, STRUCTURE.reviewFields || []);
+  backToReviewListFromDetail();
+  renderReviewList();
+  $('#status').textContent = `「${record.fileName}」の内容を保存しました。`;
 }
 
 // Chromium限定：フォルダを1回指定→以後「更新」ボタンで都度読み直せるようにする。
@@ -1671,12 +1915,14 @@ async function handleReviewFileInput(fileList) {
 
 function init() {
   STATE = buildStateFromStructure(STRUCTURE);
-  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false });
+  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
   REVIEW.visibleCols = new Set(STRUCTURE.displayCandidateFields || []);
 
   // レビュー欄が1つも指定されていない様式では、レビュー画面自体を提供しない。
+  // 色分けの凡例も同じ条件で出し分ける（区別する意味が無いため）。
   if ((STRUCTURE.reviewFields || []).length > 0) {
     $('#btn-open-review').style.display = '';
+    $('#field-legend').style.display = '';
   }
   if (window.showDirectoryPicker) {
     $('#review-btn-pick-dir').style.display = '';
@@ -1690,9 +1936,18 @@ function init() {
   $('#btn-open-review').addEventListener('click', enterReviewMode);
   $('#btn-close-review').addEventListener('click', exitReviewMode);
   $('#btn-back-to-review-list').addEventListener('click', backToReviewListFromDetail);
+  $('#btn-save-detail').addEventListener('click', saveDetailAndBackToList);
+  $('#btn-print-grid').addEventListener('click', () => window.print());
+  $('#btn-print-detail').addEventListener('click', () => window.print());
+  $('#btn-bulk-print').addEventListener('click', bulkPrintFiltered);
+  window.addEventListener('afterprint', cleanupBulkPrint);
   $('#review-file-load').addEventListener('change', (ev) => {
     handleReviewFileInput(ev.target.files);
     ev.target.value = '';
+  });
+  $('#review-status-select').addEventListener('change', (ev) => {
+    REVIEW.statusFilter = ev.target.value;
+    renderReviewBody();
   });
   $('#review-btn-pick-dir').addEventListener('click', pickReviewDirectory);
   $('#review-btn-refresh').addEventListener('click', scanReviewDirectory);
@@ -1745,8 +2000,9 @@ if (typeof window !== 'undefined') {
     findMissingRequiredFields, labelForCellId,
     get REVIEW() { return REVIEW; },
     upsertRecords, extractFieldValues, mergedDataForExport, isRecordComplete,
+    filteredRecords, renderReviewBody, bulkPrintFiltered, cleanupBulkPrint,
     buildExportFileNameForRecord, renderReviewList, enterReviewMode, exitReviewMode,
-    openReviewDetail, backToReviewListFromDetail, handleReviewFileInput,
+    openReviewDetail, backToReviewListFromDetail, saveDetailAndBackToList, handleReviewFileInput,
     pickReviewDirectory, scanReviewDirectory,
     saveBlob, pickExportDirectory,
     get EXPORT_DIR_HANDLE() { return EXPORT_DIR_HANDLE; },

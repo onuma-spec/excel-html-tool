@@ -712,13 +712,37 @@ function buildSampleData(dom, values) {
     });
 
     await testAsync('列フィルタのチェック変更では、thead（<details>の開閉状態含む）は再描画されない', async () => {
+      // .col-filter-panelはクリップ回避のためdocument.body直下にportal化されている
+      // （<details>の子ではない）ため、チェックボックスはdocument全体から探す。
       const { win } = await setupThreeRecords();
       const details = win.document.querySelector('.col-filter');
       details.setAttribute('open', 'open');
-      const cb = details.querySelector('input');
+      const cb = win.document.querySelector('.col-filter-panel input');
       cb.checked = false;
       cb.dispatchEvent(new win.Event('change'));
       assertTrue(win.document.querySelector('.col-filter').hasAttribute('open'), 'tbodyだけの再描画なら<details>のopen状態は保たれるはず');
+    });
+
+    await testAsync('<details>を開くとpanelがbody直下でposition:fixed表示され、閉じると隠れる', async () => {
+      const { win } = await setupThreeRecords();
+      const details = win.document.querySelector('.col-filter');
+      const panel = win.document.querySelector('.col-filter-panel');
+      assertEqual(panel.parentElement, win.document.body, 'panelはdocument.body直下に配置されているはず');
+      assertEqual(panel.style.display, 'none', '初期状態では非表示のはず');
+
+      details.querySelector('summary').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+      await waitFor(() => panel.style.display === 'block');
+      assertEqual(panel.style.position, 'fixed');
+
+      details.querySelector('summary').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+      await waitFor(() => panel.style.display === 'none');
+    });
+
+    await testAsync('一覧を離れる（exitReviewMode）と、body直下に残っていたフィルタpanelも片付けられる', async () => {
+      const { win } = await setupThreeRecords();
+      assertTrue(win.document.querySelectorAll('.col-filter-panel').length > 0);
+      win.__app.exitReviewMode();
+      assertEqual(win.document.querySelectorAll('.col-filter-panel').length, 0);
     });
 
     await testAsync('ステータス絞り込み：「完了」を選ぶとレビュー欄が埋まっている行だけ表示される', async () => {

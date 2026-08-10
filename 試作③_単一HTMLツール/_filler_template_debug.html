@@ -51,12 +51,12 @@
   td.cell-input input:disabled, td.cell-input textarea:disabled, td.cell-input select:disabled{
     color:#6b6a63; background:#f2f1ec; cursor:not-allowed;
   }
-  td.cell-input.cell-field-primary{background:#eef6f1;}
-  td.cell-input.cell-field-review{background:#fdf3e6;}
+  td.cell-input.cell-field-primary{background:#d7e9fb; border-left:4px solid #3676b8;}
+  td.cell-input.cell-field-review{background:#ffe3ad; border-left:4px solid #d3790f;}
   .legend-item{display:inline-flex; align-items:center; gap:4px; margin-right:16px;}
-  .legend-swatch{display:inline-block; width:12px; height:12px; border:1px solid #b9b2a0; border-radius:2px;}
-  .legend-swatch-primary{background:#eef6f1;}
-  .legend-swatch-review{background:#fdf3e6;}
+  .legend-swatch{display:inline-block; width:14px; height:14px; border-radius:2px;}
+  .legend-swatch-primary{background:#d7e9fb; border-left:4px solid #3676b8;}
+  .legend-swatch-review{background:#ffe3ad; border-left:4px solid #d3790f;}
 
   #review-actions{display:flex; gap:10px; margin:10px 0; flex-wrap:wrap; align-items:center;}
   #review-col-toggle{display:flex; flex-wrap:wrap; gap:6px 14px; margin:10px 0; padding:8px 10px; background:var(--card); border:1px solid var(--line); border-radius:6px; font-size:.78rem;}
@@ -71,12 +71,15 @@
   #review-table-root{overflow-x:auto;}
   table.review-table{border-collapse:collapse; width:100%; font-size:.8rem; background:var(--card);}
   table.review-table th, table.review-table td{border:1px solid var(--line); padding:5px 7px; text-align:left; vertical-align:top;}
-  table.review-table th{background:#eeeae0; white-space:nowrap; position:relative;}
+  table.review-table th{background:#eeeae0; white-space:nowrap;}
   .col-filter{display:inline-block; font-weight:normal;}
   .col-filter summary{cursor:pointer; list-style:none; display:inline-block; padding:0 2px;}
   .col-filter summary::-webkit-details-marker{display:none;}
+  /* position/top/leftはJS側（filler_app.jsのbuildColFilterDetails）が開閉のたびに
+     インラインstyleで設定する（document.body直下に置き#review-table-rootのoverflow:auto
+     によるクリップを避けるため）。ここでは見た目だけを定義する。 */
   .col-filter-panel{
-    position:absolute; z-index:10; top:100%; left:0; margin-top:2px; min-width:140px; max-height:220px;
+    z-index:10; min-width:140px; max-height:220px;
     overflow:auto; background:#fff; border:1px solid var(--line); border-radius:4px; padding:6px 8px;
     box-shadow:0 2px 6px rgba(0,0,0,.15); font-size:.76rem;
   }
@@ -1649,16 +1652,33 @@ function updateReviewSummary(filtered) {
   summaryRoot.textContent = hasActiveFilters() ? `${base}（絞り込み中・全${REVIEW.records.length}件）` : base;
 }
 
+// document.bodyに直接追加した列フィルタのドロップダウンpanel群。theadを再描画する
+// たびに（removeFilterPanelNodesで）掃除する必要があるため参照を保持しておく。
+let filterPanelNodes = [];
+
+function removeFilterPanelNodes() {
+  filterPanelNodes.forEach(p => p.remove());
+  filterPanelNodes = [];
+}
+
 // 列見出しの▼（Excel風のオートフィルタ）。<details>を使うことで開閉状態の管理・
 // 外側クリックでの自動close処理を独自に書かずに済ませる（ネイティブ挙動に委ねる）。
 // チェック変更時はrenderReviewTable()（thead含む全体再描画）ではなくrenderReviewBody()
 // （tbodyのみ再描画）だけを呼ぶ：thead全体を再描画すると<details>が毎回閉じてしまい、
 // 複数の値を続けてチェック/解除する操作が成立しなくなるため。
+//
+// ドロップダウンパネル（.col-filter-panel）は<details>の子にせず、document.bodyへ
+// 直接追加してposition:fixedで<summary>の位置に合わせて表示する。理由：
+// #review-table-rootはoverflow-x:autoを持ち、CSS仕様上overflow-yも暗黙にautoになる
+// ため、<details>の子のままだとその小さな表示領域にパネルがクリップされてしまう
+// （絞り込み結果が0件でtbodyがほぼ無いときに顕著。実機確認で発見）。
 function buildColFilterDetails(id) {
   const values = uniqueColumnValues(id);
   const details = el('details', { class: 'col-filter' });
-  details.appendChild(el('summary', { text: '▼', title: '値で絞り込む' }));
+  const summary = el('summary', { text: '▼', title: '値で絞り込む' });
+  details.appendChild(summary);
   const panel = el('div', { class: 'col-filter-panel' });
+  panel.style.display = 'none';
   values.forEach((v) => {
     const inputId = 'colfilter_' + id + '_' + values.indexOf(v);
     const checkbox = el('input', { type: 'checkbox', id: inputId });
@@ -1672,13 +1692,26 @@ function buildColFilterDetails(id) {
     });
     panel.appendChild(el('label', {}, [checkbox, document.createTextNode(v === '' ? '（空欄）' : v)]));
   });
-  details.appendChild(panel);
+  document.body.appendChild(panel);
+  filterPanelNodes.push(panel);
+  details.addEventListener('toggle', () => {
+    if (details.open) {
+      const rect = summary.getBoundingClientRect();
+      panel.style.position = 'fixed';
+      panel.style.top = rect.bottom + 'px';
+      panel.style.left = rect.left + 'px';
+      panel.style.display = 'block';
+    } else {
+      panel.style.display = 'none';
+    }
+  });
   return details;
 }
 
 function renderReviewTable() {
   const tableRoot = $('#review-table-root');
   tableRoot.innerHTML = '';
+  removeFilterPanelNodes();
 
   if (REVIEW.records.length === 0) {
     updateReviewSummary([]);
@@ -1830,6 +1863,7 @@ function enterReviewMode() {
 
 function exitReviewMode() {
   $('#review-detail-root').innerHTML = '';
+  removeFilterPanelNodes();
   GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
   showScreen('normal');
 }

@@ -342,16 +342,33 @@ function updateReviewSummary(filtered) {
   summaryRoot.textContent = hasActiveFilters() ? `${base}（絞り込み中・全${REVIEW.records.length}件）` : base;
 }
 
+// document.bodyに直接追加した列フィルタのドロップダウンpanel群。theadを再描画する
+// たびに（removeFilterPanelNodesで）掃除する必要があるため参照を保持しておく。
+let filterPanelNodes = [];
+
+function removeFilterPanelNodes() {
+  filterPanelNodes.forEach(p => p.remove());
+  filterPanelNodes = [];
+}
+
 // 列見出しの▼（Excel風のオートフィルタ）。<details>を使うことで開閉状態の管理・
 // 外側クリックでの自動close処理を独自に書かずに済ませる（ネイティブ挙動に委ねる）。
 // チェック変更時はrenderReviewTable()（thead含む全体再描画）ではなくrenderReviewBody()
 // （tbodyのみ再描画）だけを呼ぶ：thead全体を再描画すると<details>が毎回閉じてしまい、
 // 複数の値を続けてチェック/解除する操作が成立しなくなるため。
+//
+// ドロップダウンパネル（.col-filter-panel）は<details>の子にせず、document.bodyへ
+// 直接追加してposition:fixedで<summary>の位置に合わせて表示する。理由：
+// #review-table-rootはoverflow-x:autoを持ち、CSS仕様上overflow-yも暗黙にautoになる
+// ため、<details>の子のままだとその小さな表示領域にパネルがクリップされてしまう
+// （絞り込み結果が0件でtbodyがほぼ無いときに顕著。実機確認で発見）。
 function buildColFilterDetails(id) {
   const values = uniqueColumnValues(id);
   const details = el('details', { class: 'col-filter' });
-  details.appendChild(el('summary', { text: '▼', title: '値で絞り込む' }));
+  const summary = el('summary', { text: '▼', title: '値で絞り込む' });
+  details.appendChild(summary);
   const panel = el('div', { class: 'col-filter-panel' });
+  panel.style.display = 'none';
   values.forEach((v) => {
     const inputId = 'colfilter_' + id + '_' + values.indexOf(v);
     const checkbox = el('input', { type: 'checkbox', id: inputId });
@@ -365,13 +382,26 @@ function buildColFilterDetails(id) {
     });
     panel.appendChild(el('label', {}, [checkbox, document.createTextNode(v === '' ? '（空欄）' : v)]));
   });
-  details.appendChild(panel);
+  document.body.appendChild(panel);
+  filterPanelNodes.push(panel);
+  details.addEventListener('toggle', () => {
+    if (details.open) {
+      const rect = summary.getBoundingClientRect();
+      panel.style.position = 'fixed';
+      panel.style.top = rect.bottom + 'px';
+      panel.style.left = rect.left + 'px';
+      panel.style.display = 'block';
+    } else {
+      panel.style.display = 'none';
+    }
+  });
   return details;
 }
 
 function renderReviewTable() {
   const tableRoot = $('#review-table-root');
   tableRoot.innerHTML = '';
+  removeFilterPanelNodes();
 
   if (REVIEW.records.length === 0) {
     updateReviewSummary([]);
@@ -523,6 +553,7 @@ function enterReviewMode() {
 
 function exitReviewMode() {
   $('#review-detail-root').innerHTML = '';
+  removeFilterPanelNodes();
   GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
   showScreen('normal');
 }
