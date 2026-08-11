@@ -23,6 +23,24 @@ let DRAG_ANCHOR = null;
 let DRAGGING = false;
 
 function $(sel) { return document.querySelector(sel); }
+
+// #statusへのメッセージ表示を一本化する。#statusはSTEP0直後の固定位置にあり、
+// STEP4（書き出し）はページの下の方にあるため、ボタンから離れた場所での
+// テキスト変化だけでは気づかれにくい（実機確認フィードバックで発覚）。
+// ①class付け替えで背景色フラッシュのアニメーションを再生させ、②scrollIntoView()で
+// #status自体を画面内に入れることで、どのSTEPからでも気づけるようにする。
+// scrollIntoViewはjsdomに実装されていないため、存在チェックしてから呼ぶ。
+function setStatus(text) {
+  const el = $('#status');
+  el.textContent = text;
+  if (!text) return;
+  el.classList.remove('status-flash');
+  void el.offsetWidth; // 同じclassを続けて付け直しても再アニメーションするように強制リフロー
+  el.classList.add('status-flash');
+  if (typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
 function el(tag, attrs, children) {
   const e = document.createElement(tag);
   if (attrs) for (const k in attrs) {
@@ -159,11 +177,11 @@ function handleFile(file) {
       rebuildAndRender();
       const blockedCount = autoBlockUnreachableCells();
       if (blockedCount > 0) rebuildAndRender();
-      $('#status').textContent = `読み込みました: ${file.name}（${wsName}）`
-        + (blockedCount > 0 ? ` ／ 書き出し前チェックに引っかかった${blockedCount}個のセルを自動的に「見出し（空白）」に設定しました。実際にデータが入る箇所は手直ししてください。` : '');
+      setStatus(`読み込みました: ${file.name}（${wsName}）`
+        + (blockedCount > 0 ? ` ／ 書き出し前チェックに引っかかった${blockedCount}個のセルを自動的に「見出し（空白）」に設定しました。実際にデータが入る箇所は手直ししてください。` : ''));
     } catch (e) {
       console.error(e);
-      $('#status').textContent = 'このファイルは読み込めませんでした。.xlsx形式かご確認ください。';
+      setStatus('このファイルは読み込めませんでした。.xlsx形式かご確認ください。');
     }
   };
   reader.readAsArrayBuffer(file);
@@ -233,11 +251,11 @@ function handleFormHtmlFile(file) {
       rebuildAndRender();
       const blockedCount = autoBlockUnreachableCells();
       if (blockedCount > 0) rebuildAndRender();
-      $('#status').textContent = `入力フォームを読み込みました: ${file.name}（このフォームをもとに手直しできます）`
-        + (blockedCount > 0 ? ` ／ 書き出し前チェックに引っかかった${blockedCount}個のセルを自動的に「見出し（空白）」に設定しました。実際にデータが入る箇所は手直ししてください。` : '');
+      setStatus(`入力フォームを読み込みました: ${file.name}（このフォームをもとに手直しできます）`
+        + (blockedCount > 0 ? ` ／ 書き出し前チェックに引っかかった${blockedCount}個のセルを自動的に「見出し（空白）」に設定しました。実際にデータが入る箇所は手直ししてください。` : ''));
     } catch (e) {
       console.error(e);
-      $('#status').textContent = 'この入力フォームHTMLは読み込めませんでした。ビルダーで書き出したファイルかご確認ください。';
+      setStatus('この入力フォームHTMLは読み込めませんでした。ビルダーで書き出したファイルかご確認ください。');
     }
   };
   reader.readAsText(file, 'utf-8');
@@ -810,7 +828,7 @@ function doExportAsForm() {
   const filename = `${structure.formTitle}_入力フォーム.html`;
   const blob = new Blob([html], { type: 'text/html' });
   saveBlob(blob, filename, (result) => {
-    $('#status').textContent = statusMessageForSave(result, filename, '入力フォームを書き出しました。');
+    setStatus(statusMessageForSave(result, filename, '入力フォームを書き出しました。'));
   });
 }
 
@@ -1345,7 +1363,7 @@ function handleAnyFile(file) {
   } else if (name.endsWith('.html') || name.endsWith('.htm')) {
     handleFormHtmlFile(file);
   } else {
-    $('#status').textContent = '.xlsxファイル、またはこのビルダーで書き出した入力フォーム（.html）を選択してください。';
+    setStatus('.xlsxファイル、またはこのビルダーで書き出した入力フォーム（.html）を選択してください。');
   }
 }
 

@@ -12,6 +12,25 @@ let EXPORT_DIR_HANDLE = null;
 
 function $(sel) { return document.querySelector(sel); }
 
+// #statusへのメッセージ表示を一本化する。単にtextContentを書き換えるだけだと、
+// レビュー画面のようにボタンから離れた位置にある#statusの変化にユーザーが気づけない
+// （実機確認フィードバックで発覚）。①class付け替えで背景色フラッシュのアニメーションを
+// 再生させ、②scrollIntoView()で#status自体を画面内に入れることで、ボタンがページの
+// どこにあっても書き出し結果等に気づけるようにする。
+// scrollIntoViewはjsdomに実装されていないため、存在チェックしてから呼ぶ
+// （showDirectoryPicker等、他の箇所と同じ機能検出パターン）。
+function setStatus(text) {
+  const el = $('#status');
+  el.textContent = text;
+  if (!text) return;
+  el.classList.remove('status-flash');
+  void el.offsetWidth; // 同じclassを続けて付け直しても再アニメーションするように強制リフロー
+  el.classList.add('status-flash');
+  if (typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
 // ファイル名に使えない文字（Windows/Mac共通で問題になりやすいもの）と改行・タブを除去し、
 // 長すぎる値でファイル名が壊れないよう適度な長さに切り詰める。
 function sanitizeForFileName(s) {
@@ -475,7 +494,7 @@ function renderReviewBody() {
       const filename = buildExportFileNameForRecord(record);
       const blob = new Blob([JSON.stringify(merged, null, 2)], { type: 'application/json' });
       saveBlob(blob, filename, (result) => {
-        $('#status').textContent = statusMessageForSave(result, filename, `「${record.fileName}」のレビュー結果を書き出しました。`);
+        setStatus(statusMessageForSave(result, filename, `「${record.fileName}」のレビュー結果を書き出しました。`));
       });
     });
     btnTd.appendChild(exportBtn);
@@ -540,12 +559,12 @@ function cleanupBulkPrint() {
 function bulkExportFiltered() {
   const filtered = filteredRecords();
   if (filtered.length === 0) {
-    $('#status').textContent = '絞り込み結果が0件のため、書き出す対象がありません。';
+    setStatus('絞り込み結果が0件のため、書き出す対象がありません。');
     return;
   }
   const exportNext = (i) => {
     if (i >= filtered.length) {
-      $('#status').textContent = `${filtered.length}件を書き出しました。`;
+      setStatus(`${filtered.length}件を書き出しました。`);
       return;
     }
     const record = filtered[i];
@@ -613,7 +632,7 @@ function saveDetailAndBackToList() {
   record.reviewValues = extractFieldValues(merged, STRUCTURE.reviewFields || []);
   backToReviewListFromDetail();
   renderReviewList();
-  $('#status').textContent = `「${record.fileName}」の内容を保存しました。`;
+  setStatus(`「${record.fileName}」の内容を保存しました。`);
 }
 
 // Chromium限定：フォルダを1回指定→以後「更新」ボタンで都度読み直せるようにする。
@@ -643,7 +662,7 @@ async function scanReviewDirectory() {
   }
   const added = upsertRecords(newRecords);
   renderReviewList();
-  $('#status').textContent = `フォルダを読み直しました（新規${added}件、合計${REVIEW.records.length}件）。`;
+  setStatus(`フォルダを読み直しました（新規${added}件、合計${REVIEW.records.length}件）。`);
 }
 
 async function handleReviewFileInput(fileList) {
@@ -658,7 +677,7 @@ async function handleReviewFileInput(fileList) {
   }
   const added = upsertRecords(newRecords);
   renderReviewList();
-  $('#status').textContent = `${added}件読み込みました（合計${REVIEW.records.length}件）。`;
+  setStatus(`${added}件読み込みました（合計${REVIEW.records.length}件）。`);
 }
 
 function init() {
@@ -708,7 +727,7 @@ function init() {
       const labels = missing.map(labelForCellId).join('、');
       const proceed = window.confirm(`必須項目が未入力です（${labels}）。このまま書き出しますか？`);
       if (!proceed) {
-        $('#status').textContent = '書き出しを中止しました。未入力の必須項目を確認してください。';
+        setStatus('書き出しを中止しました。未入力の必須項目を確認してください。');
         return;
       }
     }
@@ -716,7 +735,7 @@ function init() {
     const filename = buildExportFileName();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     saveBlob(blob, filename, (result) => {
-      $('#status').textContent = statusMessageForSave(result, filename, '書き出しました。');
+      setStatus(statusMessageForSave(result, filename, '書き出しました。'));
     });
   });
 
@@ -728,9 +747,9 @@ function init() {
       try {
         const data = JSON.parse(reader.result);
         GridRender.loadDataIntoGrid(STATE, data);
-        $('#status').textContent = '読み込みました: ' + file.name;
+        setStatus('読み込みました: ' + file.name);
       } catch (e) {
-        $('#status').textContent = 'JSONの読み込みに失敗しました。';
+        setStatus('JSONの読み込みに失敗しました。');
       }
     };
     reader.readAsText(file, 'utf-8');

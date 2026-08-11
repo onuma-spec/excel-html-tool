@@ -25,7 +25,12 @@
   #drop-zone p{margin:4px 0; color:var(--sub); font-size:.9rem; pointer-events:none;}
   #drop-zone p.drop-sub{margin-top:10px; font-size:.76rem;}
   .drop-link{text-decoration:underline; color:var(--accent);}
-  #status{font-size:.85rem; color:var(--accent); min-height:1.4em; margin-bottom:14px;}
+  #status{font-size:.85rem; color:var(--accent); min-height:1.4em; margin-bottom:14px; border-radius:6px; transition:background-color .3s, padding .2s;}
+  #status.status-flash{
+    padding:8px 12px; background:var(--accent-bg); border:1px solid var(--accent);
+    color:var(--ink); font-weight:bold; font-size:.9rem; animation:status-pulse 1.6s ease-out;
+  }
+  @keyframes status-pulse{ 0%{background:#ffe9a8;} 100%{background:var(--accent-bg);} }
   button{
     font-family:inherit; font-size:.88rem; padding:9px 16px; border-radius:6px; border:1px solid var(--accent);
     background:var(--accent); color:#fff; cursor:pointer;

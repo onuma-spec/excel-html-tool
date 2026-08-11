@@ -215,6 +215,31 @@ function buildSampleData(dom, values) {
     });
   });
 
+  await runSuiteAsync('filler_app: ステータスメッセージの目立たせ方（setStatus）', async () => {
+    await testAsync('メッセージ更新時、#statusにstatus-flashクラスが付く（背景色フラッシュのトリガー）', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      win.URL.createObjectURL = () => 'blob:mock';
+      win.HTMLAnchorElement.prototype.click = function () {};
+      const status = win.document.getElementById('status');
+      assertFalse(status.classList.contains('status-flash'), '初期状態ではflashクラスは付いていないはず');
+      win.document.getElementById('btn-export').click();
+      assertTrue(status.classList.contains('status-flash'), '書き出し後はflashクラスが付くはず');
+    });
+
+    await testAsync('scrollIntoViewが無い環境（jsdom）でも例外を投げない', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      win.URL.createObjectURL = () => 'blob:mock';
+      win.HTMLAnchorElement.prototype.click = function () {};
+      assertTrue(typeof win.document.getElementById('status').scrollIntoView === 'undefined', '前提確認：jsdomにはscrollIntoViewが無い');
+      win.document.getElementById('btn-export').click(); // 例外を投げなければOK
+      assertEqual(win.document.getElementById('status').textContent, '書き出しました。');
+    });
+  });
+
   await runSuiteAsync('filler_app: 書き出しファイル名の組み立て（buildExportFileName）', async () => {
     await testAsync('fileNameFields未指定なら「タイトル_日付(YYYYMMDD).json」になる', async () => {
       const structure = buildStructureFromFixture(FIXTURE); // formTitle既定値「テスト入力フォーム」

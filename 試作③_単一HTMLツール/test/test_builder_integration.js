@@ -556,12 +556,14 @@ function setModalInput(win, id, value) {
       assertTrue(Array.isArray(structure.manualGroups));
     });
 
-    await testAsync('doExportAsForm()は例外を投げず、書き出し完了のステータスになる', async () => {
+    await testAsync('doExportAsForm()は例外を投げず、書き出し完了のステータスになる（目立たせるためのstatus-flashクラスも付く）', async () => {
       const dom = newBuilderPage();
       const win = dom.window;
-      await loadFixture(dom, FIXTURE);
+      await loadFixture(dom, FIXTURE); // この時点でファイル読込メッセージによりstatus-flashは既に付いている
+      const status = win.document.getElementById('status');
       win.__app.doExportAsForm();
-      assertEqual(win.document.getElementById('status').textContent, '入力フォームを書き出しました。');
+      assertEqual(status.textContent, '入力フォームを書き出しました。');
+      assertTrue(status.classList.contains('status-flash'), '書き出し後もstatus-flashクラスが付いているはず');
     });
 
     await testAsync('STEP4のタイトル欄で書き換えると、書き出されるフォームのh1・titleとダウンロードファイル名に反映される', async () => {

@@ -13,7 +13,12 @@
   .wrap{max-width:1100px; margin:0 auto; padding:24px 16px 80px;}
   h1{font-size:1.3rem; margin:0 0 6px;}
   p.lead{color:var(--sub); font-size:.88rem; margin:0 0 20px; line-height:1.6;}
-  #status{font-size:.85rem; color:var(--accent); min-height:1.4em; margin-bottom:14px;}
+  #status{font-size:.85rem; color:var(--accent); min-height:1.4em; margin-bottom:14px; border-radius:6px; transition:background-color .3s, padding .2s;}
+  #status.status-flash{
+    padding:8px 12px; background:var(--accent-bg); border:1px solid var(--accent);
+    color:var(--ink); font-weight:bold; font-size:.9rem; animation:status-pulse 1.6s ease-out;
+  }
+  @keyframes status-pulse{ 0%{background:#ffe9a8;} 100%{background:var(--accent-bg);} }
   #export-dir-bar{display:none; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap; padding:8px 10px; background:var(--accent-bg); border:1px solid var(--line); border-radius:6px;}
   #export-dir-status{font-size:.8rem; color:var(--sub);}
   #actions{display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center;}
