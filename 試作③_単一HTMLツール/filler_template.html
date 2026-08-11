@@ -69,7 +69,8 @@
   #review-status-filter{font-size:.78rem; margin:8px 0;}
   #review-status-filter select{font-family:inherit; font-size:.8rem; padding:2px 4px;}
   #review-summary{font-size:.82rem; color:var(--sub); margin:8px 0;}
-  #review-bulk-actions-bar{display:flex; gap:10px; align-items:center; margin:8px 0; flex-wrap:wrap;}
+  .review-action-bar{display:flex; gap:10px; align-items:center; margin:8px 0; flex-wrap:wrap;}
+  #review-top-bar{margin-bottom:8px;}
   #bulk-print-root{display:none;}
   .bulk-print-record{margin-bottom:24px;}
   .bulk-print-record h2{font-size:1rem; margin:0 0 8px;}
@@ -140,6 +141,9 @@
   <div id="grid-root"></div>
 
   <div id="review-root" style="display:none">
+    <div id="review-top-bar" class="no-print">
+      <button class="secondary" id="btn-close-review">← 通常の入力画面に戻る</button>
+    </div>
     <p class="lead no-print">
       複数の事業のJSONをまとめて読み込み、一覧表でレビュー欄（判定・コメント等）を入力できます。
       各行の「詳細」から、所管部署が入力した内容を確認・編集できます。
@@ -149,7 +153,6 @@
       <input type="file" id="review-file-load" accept="application/json" multiple style="display:none">
       <button class="secondary" id="review-btn-pick-dir" style="display:none">📁 フォルダを指定する（Edge/Chrome）</button>
       <button class="secondary" id="review-btn-refresh" style="display:none">🔄 更新</button>
-      <button class="secondary" id="btn-close-review">← 通常の入力画面に戻る</button>
     </div>
     <p class="hint no-print">共有フォルダ（提出用サーバー等）を直接指定できるのはEdge・Chromeのみです。それ以外のブラウザでは、ローカルの専用フォルダにJSONを集めておき、都度「JSONファイルを選ぶ」で選び直してください。</p>
     <div id="review-col-toggle" class="no-print"></div>
@@ -163,12 +166,15 @@
       </label>
     </div>
     <div id="review-summary" class="no-print"></div>
-    <div id="review-bulk-actions-bar" class="no-print">
-      <button class="secondary" id="btn-bulk-export">📦 絞り込み結果を一括書き出す</button>
+    <div id="review-print-bar" class="review-action-bar no-print">
       <button class="secondary" id="btn-bulk-print">🖨 絞り込み結果を一括印刷</button>
-      <span class="hint">現在の絞り込み結果（列フィルタ・状態）が対象です。書き出し先フォルダを指定していない場合、書き出しはファイルごとに個別のダウンロードになります。</span>
+      <span class="hint">現在の絞り込み結果（列フィルタ・状態）を対象に、1件ずつページを分けて印刷します。レビュー記入の参考資料としてご利用ください。</span>
     </div>
     <div id="review-table-root"></div>
+    <div id="review-export-bar" class="review-action-bar no-print">
+      <button class="secondary" id="btn-bulk-export">📦 絞り込み結果を一括書き出す</button>
+      <span class="hint">現在の絞り込み結果（列フィルタ・状態）を対象に書き出します。書き出し先フォルダを指定していない場合、ファイルごとに個別のダウンロードになります。</span>
+    </div>
   </div>
 
   <div id="bulk-print-root"></div>
