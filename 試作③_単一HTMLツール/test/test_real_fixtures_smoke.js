@@ -42,6 +42,10 @@ function waitFor(predicate, timeoutMs, intervalMs) {
 
 function newBuilderPage() {
   const html = `<!doctype html><html><body>
+    <div id="export-dir-bar">
+      <button id="btn-pick-export-dir">pickdir</button>
+      <span id="export-dir-status"></span>
+    </div>
     <div id="status"></div>
     <label id="drop-zone"><input type="file" id="file-input"></label>
     <div id="grid-root"></div>

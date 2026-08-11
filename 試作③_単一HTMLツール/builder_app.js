@@ -1304,22 +1304,6 @@ function renderCheckPanel() {
   });
   if (displayCandidateEl) box.appendChild(displayCandidateEl);
 
-  // 書き出し先フォルダの指定（Chromium限定）。非対応ブラウザではボタン自体をDOMに
-  // 追加しない（CSSのdisplay:noneで隠すのではなく、そもそも要素を作らない方式にすることで、
-  // filler_app.js側で一度踏んだ「インラインstyle.displayとスタイルシートのdisplay:noneが
-  // 競合し表示されない」という不具合のクラス自体を構造的に避けている）。
-  if (window.showDirectoryPicker) {
-    const dirRow = el('div', { class: 'export-dir-row' });
-    const pickDirBtn = el('button', { class: 'secondary', type: 'button', text: '📁 書き出し先フォルダを指定する（Edge/Chrome）' });
-    pickDirBtn.addEventListener('click', pickExportDirectory);
-    dirRow.appendChild(pickDirBtn);
-    const dirStatusText = EXPORT_DIR_HANDLE
-      ? `書き出し先：${EXPORT_DIR_HANDLE.name}（以後この入力フォームの書き出しはここへ直接保存されます）`
-      : '指定すると、以後の入力フォームHTML書き出しはダウンロードではなくこのフォルダへ直接保存されます。';
-    dirRow.appendChild(el('span', { class: 'm-note', id: 'export-dir-status', text: dirStatusText }));
-    box.appendChild(dirRow);
-  }
-
   const btnRow = el('div', { class: 'm-btnrow' });
   if (unreachable.length === 0) {
     const okBtn = el('button', { text: '🌐 書き出す', type: 'button' });
@@ -1370,6 +1354,16 @@ function handleAnyFile(file) {
 function init() {
   renderStepUi();
 
+  // 書き出し先フォルダの指定（Chromium限定）。ステータス表示と同じく、STEP0/STEP4の
+  // どちらの書き出しにも関わる「STEP横断の共通機能」のため、特定のSTEPの中に置かず
+  // 画面上部に固定表示する（filler_app.js側の#export-dir-barと同じ設計に統一した）。
+  // 非対応ブラウザでは表示しない（インラインstyle.displayとスタイルシートのdisplay:noneが
+  // 競合しないよう、明示的に'flex'をセットする必要がある）。
+  if (window.showDirectoryPicker) {
+    $('#export-dir-bar').style.display = 'flex';
+  }
+  $('#btn-pick-export-dir').addEventListener('click', pickExportDirectory);
+
   $('#file-input').addEventListener('change', (ev) => {
     if (ev.target.files[0]) handleAnyFile(ev.target.files[0]);
   });
@@ -1401,6 +1395,6 @@ if (typeof window !== 'undefined') {
     get SELECTED() { return SELECTED; },
     get CURRENT() { return CURRENT; },
     get EXPORT_DIR_HANDLE() { return EXPORT_DIR_HANDLE; },
-    setExportDirHandle: (h) => { EXPORT_DIR_HANDLE = h; renderCheckPanel(); }, // テスト用（実ブラウザではpickExportDirectory経由）
+    setExportDirHandle: (h) => { EXPORT_DIR_HANDLE = h; }, // テスト用（実ブラウザではpickExportDirectory経由）
   };
 }

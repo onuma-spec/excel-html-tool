@@ -31,6 +31,7 @@
     color:var(--ink); font-weight:bold; font-size:.9rem; animation:status-pulse 1.6s ease-out;
   }
   @keyframes status-pulse{ 0%{background:#ffe9a8;} 100%{background:var(--accent-bg);} }
+  #export-dir-bar{display:none; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap; padding:8px 10px; background:var(--accent-bg); border:1px solid var(--line); border-radius:6px;}
   button{
     font-family:inherit; font-size:.88rem; padding:9px 16px; border-radius:6px; border:1px solid var(--accent);
     background:var(--accent); color:#fff; cursor:pointer;
@@ -117,8 +118,6 @@
   .modal-box .m-note.modal-divider{border-top:1px solid var(--line); margin-top:16px; padding-top:14px;}
   .modal-box textarea{resize:vertical; min-height:120px;}
   .m-btnrow{display:flex; gap:8px; margin-top:18px; justify-content:flex-end; flex-wrap:wrap;}
-  .export-dir-row{display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap;}
-  .export-dir-row .m-note{margin:0;}
   .modal-box.modal-box-wide{width:min(640px, 92vw);}
 
   /* セル設定ウィザードの「セルの種類」選択ボタン群 */
@@ -204,13 +203,18 @@
   </ul>
   <p class="lead lead-note">※ このページ自体では値の入力はできません（入力は入力フォーム（.html）側で行います）</p>
 
+  <div id="export-dir-bar">
+    <button class="secondary" id="btn-pick-export-dir">📁 書き出し先フォルダを指定する（Edge/Chrome）</button>
+    <span id="export-dir-status" class="hint">指定すると、以後の入力フォームHTML書き出しはダウンロードではなくこのフォルダへ直接保存されます。</span>
+  </div>
+  <div id="status"></div>
+
   <p class="step-label" data-step-label="0"></p>
   <label id="drop-zone" for="file-input">
     <p>ここに.xlsxファイル、または入力フォーム（.html）を<br>ドラッグ＆ドロップ、または<span class="drop-link">ファイルを選択</span></p>
     <p class="drop-sub">入力フォーム（.html）の場合は、続きから手直しできます（前年度のフォームを翌年度用に作り直す場合など）</p>
     <input type="file" id="file-input" accept=".xlsx,.html,.htm" style="display:none;">
   </label>
-  <div id="status"></div>
 
   <p class="step-label" data-step-label="1"></p>
   <p class="hint" style="margin:-2px 0 8px;">読み込み時に自動で設定されていますが、セルごとに意図と違う箇所がないかここで確認・調整してください。</p>
@@ -2680,22 +2684,6 @@ function renderCheckPanel() {
   });
   if (displayCandidateEl) box.appendChild(displayCandidateEl);
 
-  // 書き出し先フォルダの指定（Chromium限定）。非対応ブラウザではボタン自体をDOMに
-  // 追加しない（CSSのdisplay:noneで隠すのではなく、そもそも要素を作らない方式にすることで、
-  // filler_app.js側で一度踏んだ「インラインstyle.displayとスタイルシートのdisplay:noneが
-  // 競合し表示されない」という不具合のクラス自体を構造的に避けている）。
-  if (window.showDirectoryPicker) {
-    const dirRow = el('div', { class: 'export-dir-row' });
-    const pickDirBtn = el('button', { class: 'secondary', type: 'button', text: '📁 書き出し先フォルダを指定する（Edge/Chrome）' });
-    pickDirBtn.addEventListener('click', pickExportDirectory);
-    dirRow.appendChild(pickDirBtn);
-    const dirStatusText = EXPORT_DIR_HANDLE
-      ? `書き出し先：${EXPORT_DIR_HANDLE.name}（以後この入力フォームの書き出しはここへ直接保存されます）`
-      : '指定すると、以後の入力フォームHTML書き出しはダウンロードではなくこのフォルダへ直接保存されます。';
-    dirRow.appendChild(el('span', { class: 'm-note', id: 'export-dir-status', text: dirStatusText }));
-    box.appendChild(dirRow);
-  }
-
   const btnRow = el('div', { class: 'm-btnrow' });
   if (unreachable.length === 0) {
     const okBtn = el('button', { text: '🌐 書き出す', type: 'button' });
@@ -2746,6 +2734,16 @@ function handleAnyFile(file) {
 function init() {
   renderStepUi();
 
+  // 書き出し先フォルダの指定（Chromium限定）。ステータス表示と同じく、STEP0/STEP4の
+  // どちらの書き出しにも関わる「STEP横断の共通機能」のため、特定のSTEPの中に置かず
+  // 画面上部に固定表示する（filler_app.js側の#export-dir-barと同じ設計に統一した）。
+  // 非対応ブラウザでは表示しない（インラインstyle.displayとスタイルシートのdisplay:noneが
+  // 競合しないよう、明示的に'flex'をセットする必要がある）。
+  if (window.showDirectoryPicker) {
+    $('#export-dir-bar').style.display = 'flex';
+  }
+  $('#btn-pick-export-dir').addEventListener('click', pickExportDirectory);
+
   $('#file-input').addEventListener('change', (ev) => {
     if (ev.target.files[0]) handleAnyFile(ev.target.files[0]);
   });
@@ -2777,7 +2775,7 @@ if (typeof window !== 'undefined') {
     get SELECTED() { return SELECTED; },
     get CURRENT() { return CURRENT; },
     get EXPORT_DIR_HANDLE() { return EXPORT_DIR_HANDLE; },
-    setExportDirHandle: (h) => { EXPORT_DIR_HANDLE = h; renderCheckPanel(); }, // テスト用（実ブラウザではpickExportDirectory経由）
+    setExportDirHandle: (h) => { EXPORT_DIR_HANDLE = h; }, // テスト用（実ブラウザではpickExportDirectory経由）
   };
 }
 

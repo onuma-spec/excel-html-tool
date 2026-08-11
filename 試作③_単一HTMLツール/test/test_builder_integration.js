@@ -24,8 +24,15 @@ const SRC = {
 };
 const FIXTURE = path.join(ROOT, '実機確認', '公開テンプレ調達', 'simple_moshikomi.xlsx');
 
-function newBuilderPage() {
+// preInit（省略可）：dom.window.__app.init()を呼ぶ前にwindowへ設定を差し込みたい場合に使う
+// （例：showDirectoryPickerの有無はinit()実行時に一度だけ判定されるため、それより前に
+// 差し込む必要があるテストのため）。
+function newBuilderPage(preInit) {
   const html = `<!doctype html><html><body>
+    <div id="export-dir-bar">
+      <button id="btn-pick-export-dir">pickdir</button>
+      <span id="export-dir-status"></span>
+    </div>
     <div id="status"></div>
     <p class="step-label" data-step-label="0"></p>
     <label id="drop-zone"><input type="file" id="file-input"></label>
@@ -55,6 +62,7 @@ function newBuilderPage() {
   // jsdomはレイアウト計算をしないためscrollIntoViewを実装していない（実ブラウザには存在する
   // 標準API）。「このセルをグリッド上で確認する」ボタンのクリックで例外にならないよう補う。
   dom.window.Element.prototype.scrollIntoView = function () {};
+  if (preInit) preInit(dom.window);
   dom.window.__app.init();
   return dom;
 }
@@ -74,6 +82,10 @@ function newBuilderPageWithRealFillerTemplate() {
   const builderWithFiller = SRC.builder.replace('"__FILLER_TEMPLATE_JSON__"', fillerJsonLiteral);
 
   const html = `<!doctype html><html><body>
+    <div id="export-dir-bar">
+      <button id="btn-pick-export-dir">pickdir</button>
+      <span id="export-dir-status"></span>
+    </div>
     <div id="status"></div>
     <p class="step-label" data-step-label="0"></p>
     <label id="drop-zone"><input type="file" id="file-input"></label>
@@ -835,23 +847,23 @@ function setModalInput(win, id, value) {
       };
     }
 
-    await testAsync('showDirectoryPicker非対応環境（jsdom既定）では、フォルダ指定ボタン自体がDOMに存在しない', async () => {
+    await testAsync('showDirectoryPicker非対応環境（jsdom既定）では、#export-dir-barのinline displayは変更しない（実テンプレートのCSS側のdisplay:noneに委ねる）', async () => {
+      // #status・#export-dir-barはSTEP0/STEP4どちらの書き出しにも関わるSTEP横断の
+      // 共通機能のため、STEP固有のcheck-panelの中ではなく画面上部に固定表示する
+      // （filler_app.js側の#export-dir-barと同じ設計に統一した）。
       const dom = newBuilderPage();
       const win = dom.window;
       await loadFixture(dom, FIXTURE);
-      const btns = Array.from(win.document.querySelectorAll('#check-panel button'));
-      const pickBtn = btns.find(b => b.textContent.includes('書き出し先フォルダを指定する'));
-      assertTrue(!pickBtn, '非対応環境ではボタン自体が無いはず（CSSで隠すのではなくDOMに追加しない設計）');
+      assertEqual(win.document.getElementById('export-dir-bar').style.display, '');
     });
 
-    await testAsync('showDirectoryPicker対応環境では、フォルダ指定ボタンが表示される', async () => {
-      const dom = newBuilderPage();
+    await testAsync('showDirectoryPicker対応環境では、#export-dir-barのinline displayに明示的に"flex"がセットされる', async () => {
+      // showDirectoryPickerの有無はinit()実行時に一度だけ判定されるため、
+      // newBuilderPage()のpreInitフックでinit()より前に差し込む。
+      const dom = newBuilderPage((win) => { win.showDirectoryPicker = async () => ({ name: 'mock' }); });
       const win = dom.window;
-      win.showDirectoryPicker = async () => ({ name: 'mock' });
       await loadFixture(dom, FIXTURE);
-      const btns = Array.from(win.document.querySelectorAll('#check-panel button'));
-      const pickBtn = btns.find(b => b.textContent.includes('書き出し先フォルダを指定する'));
-      assertTrue(!!pickBtn, '対応環境ではボタンが表示されるはず');
+      assertEqual(win.document.getElementById('export-dir-bar').style.display, 'flex');
     });
 
     await testAsync('EXPORT_DIR_HANDLE未指定なら、doExportAsForm()は従来通り同期的にダウンロードする', async () => {
