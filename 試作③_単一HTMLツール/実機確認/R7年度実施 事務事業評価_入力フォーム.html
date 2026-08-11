@@ -13,7 +13,12 @@
   .wrap{max-width:1100px; margin:0 auto; padding:24px 16px 80px;}
   h1{font-size:1.3rem; margin:0 0 6px;}
   p.lead{color:var(--sub); font-size:.88rem; margin:0 0 20px; line-height:1.6;}
-  #status{font-size:.85rem; color:var(--accent); min-height:1.4em; margin-bottom:14px;}
+  #status{font-size:.85rem; color:var(--accent); min-height:1.4em; margin-bottom:14px; border-radius:6px; transition:background-color .3s, padding .2s;}
+  #status.status-flash{
+    padding:8px 12px; background:var(--accent-bg); border:1px solid var(--accent);
+    color:var(--ink); font-weight:bold; font-size:.9rem; animation:status-pulse 1.6s ease-out;
+  }
+  @keyframes status-pulse{ 0%{background:#ffe9a8;} 100%{background:var(--accent-bg);} }
   #export-dir-bar{display:none; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap; padding:8px 10px; background:var(--accent-bg); border:1px solid var(--line); border-radius:6px;}
   #export-dir-status{font-size:.8rem; color:var(--sub);}
   #actions{display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center;}
@@ -64,7 +69,8 @@
   #review-status-filter{font-size:.78rem; margin:8px 0;}
   #review-status-filter select{font-family:inherit; font-size:.8rem; padding:2px 4px;}
   #review-summary{font-size:.82rem; color:var(--sub); margin:8px 0;}
-  #review-bulk-actions-bar{display:flex; gap:10px; align-items:center; margin:8px 0; flex-wrap:wrap;}
+  .review-action-bar{display:flex; gap:10px; align-items:center; margin:8px 0; flex-wrap:wrap;}
+  #review-top-bar{margin-bottom:8px;}
   #bulk-print-root{display:none;}
   .bulk-print-record{margin-bottom:24px;}
   .bulk-print-record h2{font-size:1rem; margin:0 0 8px;}
@@ -135,6 +141,9 @@
   <div id="grid-root"></div>
 
   <div id="review-root" style="display:none">
+    <div id="review-top-bar" class="no-print">
+      <button class="secondary" id="btn-close-review">← 通常の入力画面に戻る</button>
+    </div>
     <p class="lead no-print">
       複数の事業のJSONをまとめて読み込み、一覧表でレビュー欄（判定・コメント等）を入力できます。
       各行の「詳細」から、所管部署が入力した内容を確認・編集できます。
@@ -144,7 +153,6 @@
       <input type="file" id="review-file-load" accept="application/json" multiple style="display:none">
       <button class="secondary" id="review-btn-pick-dir" style="display:none">📁 フォルダを指定する（Edge/Chrome）</button>
       <button class="secondary" id="review-btn-refresh" style="display:none">🔄 更新</button>
-      <button class="secondary" id="btn-close-review">← 通常の入力画面に戻る</button>
     </div>
     <p class="hint no-print">共有フォルダ（提出用サーバー等）を直接指定できるのはEdge・Chromeのみです。それ以外のブラウザでは、ローカルの専用フォルダにJSONを集めておき、都度「JSONファイルを選ぶ」で選び直してください。</p>
     <div id="review-col-toggle" class="no-print"></div>
@@ -158,12 +166,15 @@
       </label>
     </div>
     <div id="review-summary" class="no-print"></div>
-    <div id="review-bulk-actions-bar" class="no-print">
-      <button class="secondary" id="btn-bulk-export">📦 絞り込み結果を一括書き出す</button>
+    <div id="review-print-bar" class="review-action-bar no-print">
       <button class="secondary" id="btn-bulk-print">🖨 絞り込み結果を一括印刷</button>
-      <span class="hint">現在の絞り込み結果（列フィルタ・状態）が対象です。書き出し先フォルダを指定していない場合、書き出しはファイルごとに個別のダウンロードになります。</span>
+      <span class="hint">現在の絞り込み結果（列フィルタ・状態）を対象に、1件ずつページを分けて印刷します。レビュー記入の参考資料としてご利用ください。</span>
     </div>
     <div id="review-table-root"></div>
+    <div id="review-export-bar" class="review-action-bar no-print">
+      <button class="secondary" id="btn-bulk-export">📦 絞り込み結果を一括書き出す</button>
+      <span class="hint">現在の絞り込み結果（列フィルタ・状態）を対象に書き出します。書き出し先フォルダを指定していない場合、ファイルごとに個別のダウンロードになります。</span>
+    </div>
   </div>
 
   <div id="bulk-print-root"></div>
@@ -1323,6 +1334,25 @@ let EXPORT_DIR_HANDLE = null;
 
 function $(sel) { return document.querySelector(sel); }
 
+// #statusへのメッセージ表示を一本化する。単にtextContentを書き換えるだけだと、
+// レビュー画面のようにボタンから離れた位置にある#statusの変化にユーザーが気づけない
+// （実機確認フィードバックで発覚）。①class付け替えで背景色フラッシュのアニメーションを
+// 再生させ、②scrollIntoView()で#status自体を画面内に入れることで、ボタンがページの
+// どこにあっても書き出し結果等に気づけるようにする。
+// scrollIntoViewはjsdomに実装されていないため、存在チェックしてから呼ぶ
+// （showDirectoryPicker等、他の箇所と同じ機能検出パターン）。
+function setStatus(text) {
+  const el = $('#status');
+  el.textContent = text;
+  if (!text) return;
+  el.classList.remove('status-flash');
+  void el.offsetWidth; // 同じclassを続けて付け直しても再アニメーションするように強制リフロー
+  el.classList.add('status-flash');
+  if (typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
 // ファイル名に使えない文字（Windows/Mac共通で問題になりやすいもの）と改行・タブを除去し、
 // 長すぎる値でファイル名が壊れないよう適度な長さに切り詰める。
 function sanitizeForFileName(s) {
@@ -1786,7 +1816,7 @@ function renderReviewBody() {
       const filename = buildExportFileNameForRecord(record);
       const blob = new Blob([JSON.stringify(merged, null, 2)], { type: 'application/json' });
       saveBlob(blob, filename, (result) => {
-        $('#status').textContent = statusMessageForSave(result, filename, `「${record.fileName}」のレビュー結果を書き出しました。`);
+        setStatus(statusMessageForSave(result, filename, `「${record.fileName}」のレビュー結果を書き出しました。`));
       });
     });
     btnTd.appendChild(exportBtn);
@@ -1851,12 +1881,12 @@ function cleanupBulkPrint() {
 function bulkExportFiltered() {
   const filtered = filteredRecords();
   if (filtered.length === 0) {
-    $('#status').textContent = '絞り込み結果が0件のため、書き出す対象がありません。';
+    setStatus('絞り込み結果が0件のため、書き出す対象がありません。');
     return;
   }
   const exportNext = (i) => {
     if (i >= filtered.length) {
-      $('#status').textContent = `${filtered.length}件を書き出しました。`;
+      setStatus(`${filtered.length}件を書き出しました。`);
       return;
     }
     const record = filtered[i];
@@ -1924,7 +1954,7 @@ function saveDetailAndBackToList() {
   record.reviewValues = extractFieldValues(merged, STRUCTURE.reviewFields || []);
   backToReviewListFromDetail();
   renderReviewList();
-  $('#status').textContent = `「${record.fileName}」の内容を保存しました。`;
+  setStatus(`「${record.fileName}」の内容を保存しました。`);
 }
 
 // Chromium限定：フォルダを1回指定→以後「更新」ボタンで都度読み直せるようにする。
@@ -1954,7 +1984,7 @@ async function scanReviewDirectory() {
   }
   const added = upsertRecords(newRecords);
   renderReviewList();
-  $('#status').textContent = `フォルダを読み直しました（新規${added}件、合計${REVIEW.records.length}件）。`;
+  setStatus(`フォルダを読み直しました（新規${added}件、合計${REVIEW.records.length}件）。`);
 }
 
 async function handleReviewFileInput(fileList) {
@@ -1969,7 +1999,7 @@ async function handleReviewFileInput(fileList) {
   }
   const added = upsertRecords(newRecords);
   renderReviewList();
-  $('#status').textContent = `${added}件読み込みました（合計${REVIEW.records.length}件）。`;
+  setStatus(`${added}件読み込みました（合計${REVIEW.records.length}件）。`);
 }
 
 function init() {
@@ -2019,7 +2049,7 @@ function init() {
       const labels = missing.map(labelForCellId).join('、');
       const proceed = window.confirm(`必須項目が未入力です（${labels}）。このまま書き出しますか？`);
       if (!proceed) {
-        $('#status').textContent = '書き出しを中止しました。未入力の必須項目を確認してください。';
+        setStatus('書き出しを中止しました。未入力の必須項目を確認してください。');
         return;
       }
     }
@@ -2027,7 +2057,7 @@ function init() {
     const filename = buildExportFileName();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     saveBlob(blob, filename, (result) => {
-      $('#status').textContent = statusMessageForSave(result, filename, '書き出しました。');
+      setStatus(statusMessageForSave(result, filename, '書き出しました。'));
     });
   });
 
@@ -2039,9 +2069,9 @@ function init() {
       try {
         const data = JSON.parse(reader.result);
         GridRender.loadDataIntoGrid(STATE, data);
-        $('#status').textContent = '読み込みました: ' + file.name;
+        setStatus('読み込みました: ' + file.name);
       } catch (e) {
-        $('#status').textContent = 'JSONの読み込みに失敗しました。';
+        setStatus('JSONの読み込みに失敗しました。');
       }
     };
     reader.readAsText(file, 'utf-8');

@@ -95,31 +95,45 @@ function buildSingleLabelRowStructure() {
   };
 }
 
-// 実際のfiller_template.htmlと同じID体系を最小限そろえたfixture。レビュー画面用の
-// 要素（#btn-open-review等）もinit()がaddEventListenerで参照するため、実テンプレートと
-// 乖離しないよう一通り含めておく（過去に⚙アイコン追加でテストのDOM前提が崩れた教訓と同型）。
+// 実際のfiller_template.htmlと同じID体系を最小限そろえたfixture（STEP1〜4構成）。
+// init()がaddEventListenerで参照する要素は実テンプレートと乖離しないよう一通り
+// 含めておく（過去に⚙アイコン追加でテストのDOM前提が崩れた教訓と同型）。
 function newFillerPage(structure) {
   const html = `<!doctype html><html><body>
     <div id="export-dir-bar">
       <button id="btn-pick-export-dir">pickdir</button>
       <span id="export-dir-status"></span>
     </div>
-    <div id="actions">
-      <button id="btn-export">export</button>
-      <input type="file" id="file-load-json">
-      <button id="btn-open-review" style="display:none">review</button>
-      <button id="btn-print-grid">print</button>
-    </div>
     <div id="status"></div>
-    <div id="grid-root"></div>
-    <p id="grid-hint"></p>
-    <p id="field-legend" style="display:none"></p>
+
+    <div id="mode-select-root">
+      <button type="button" id="btn-mode-normal">1次入力</button>
+      <button type="button" id="btn-mode-review" style="display:none">2次以降入力</button>
+    </div>
+
+    <div id="normal-mode-root" style="display:none">
+      <button id="btn-back-to-select">戻る</button>
+      <div id="normal-load-bar">
+        <input type="file" id="file-load-json">
+      </div>
+      <p id="grid-hint"></p>
+      <p id="field-legend" style="display:none"></p>
+      <div id="grid-root"></div>
+      <div id="actions">
+        <button id="btn-export">export</button>
+        <button id="btn-print-grid">print</button>
+      </div>
+    </div>
+
     <div id="review-root" style="display:none">
+      <button id="btn-close-review">close</button>
       <div id="review-actions">
         <input type="file" id="review-file-load" multiple>
         <button id="review-btn-pick-dir" style="display:none">dir</button>
         <button id="review-btn-refresh" style="display:none">refresh</button>
-        <button id="btn-close-review">close</button>
+      </div>
+      <div id="review-print-bar">
+        <button id="btn-bulk-print">bulkprint</button>
       </div>
       <div id="review-col-toggle"></div>
       <select id="review-status-select">
@@ -128,10 +142,12 @@ function newFillerPage(structure) {
         <option value="done">done</option>
       </select>
       <div id="review-summary"></div>
-      <button id="btn-bulk-export">bulkexport</button>
-      <button id="btn-bulk-print">bulkprint</button>
       <div id="review-table-root"></div>
+      <div id="review-export-bar">
+        <button id="btn-bulk-export">bulkexport</button>
+      </div>
     </div>
+
     <div id="review-detail-root-wrap" style="display:none">
       <button id="btn-save-detail">save</button>
       <button id="btn-back-to-review-list">back</button>
@@ -150,9 +166,14 @@ function newFillerPage(structure) {
   return new JSDOM(html, { runScripts: 'dangerously', url: 'http://localhost/' });
 }
 
+// reviewFieldsが指定された様式ではSTEP1（入力画面の選択）が初期画面になり、
+// #grid-rootはまだ描画されない。既存テストの大半は「グリッドが最初から使える」
+// 前提で書かれているため、readyPage()側でenterNormalMode()を呼び1次入力画面まで
+// 進めておく（STEP1自体を検証したいテストはnewFillerPage()を直接使うこと）。
 async function readyPage(structure) {
   const dom = newFillerPage(structure);
   await waitFor(() => dom.window.__app && dom.window.__app.STATE);
+  dom.window.__app.enterNormalMode();
   return dom;
 }
 
@@ -169,6 +190,81 @@ function buildSampleData(dom, values) {
 }
 
 (async () => {
+  await runSuiteAsync('filler_app: STEP1（入力画面の選択）', async () => {
+    async function readyPageRaw(structure) {
+      const dom = newFillerPage(structure);
+      await waitFor(() => dom.window.__app && dom.window.__app.STATE);
+      return dom;
+    }
+
+    await testAsync('reviewFieldsが指定された様式では、STEP1（選択画面）が初期表示される', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      structure.reviewFields = ['cell_R3_C4'];
+      const dom = await readyPageRaw(structure);
+      const win = dom.window;
+      assertEqual(win.document.getElementById('mode-select-root').style.display, '');
+      assertEqual(win.document.getElementById('normal-mode-root').style.display, 'none');
+      assertEqual(win.document.getElementById('grid-root').innerHTML, '', 'STEP1の時点ではグリッドはまだ描画されない');
+    });
+
+    await testAsync('reviewFieldsが無指定の様式では、STEP1を挟まず直接1次入力（normal）から始まる', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const dom = await readyPageRaw(structure);
+      const win = dom.window;
+      assertEqual(win.document.getElementById('mode-select-root').style.display, 'none');
+      assertEqual(win.document.getElementById('normal-mode-root').style.display, '');
+      assertTrue(win.document.getElementById('grid-root').innerHTML.length > 0, '1段階しか無い様式では最初からグリッドが描画されているはず');
+    });
+
+    await testAsync('STEP1で「1次入力」カードを押すと、normal-mode-rootが表示されグリッドが描画される', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      structure.reviewFields = ['cell_R3_C4'];
+      const dom = await readyPageRaw(structure);
+      const win = dom.window;
+      win.document.getElementById('btn-mode-normal').click();
+      assertEqual(win.document.getElementById('normal-mode-root').style.display, '');
+      assertEqual(win.document.getElementById('mode-select-root').style.display, 'none');
+      assertTrue(win.document.getElementById('grid-root').innerHTML.length > 0);
+    });
+
+    await testAsync('STEP1で「2次以降入力」カードを押すと、review-rootが表示される', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      structure.reviewFields = ['cell_R3_C4'];
+      const dom = await readyPageRaw(structure);
+      const win = dom.window;
+      win.document.getElementById('btn-mode-review').click();
+      assertEqual(win.document.getElementById('review-root').style.display, '');
+      assertEqual(win.document.getElementById('mode-select-root').style.display, 'none');
+    });
+
+    await testAsync('1次入力→「戻る」でSTEP1に戻り、再度1次入力を選ぶと入力途中の値が保たれる（STEP1を経由しただけならgrid-rootは作り直されない）', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      structure.reviewFields = ['cell_R3_C4'];
+      const dom = await readyPageRaw(structure);
+      const win = dom.window;
+      win.__app.enterNormalMode();
+      const c3id = 'cell_R3_C3';
+      win.document.getElementById(c3id).value = '入力途中の値';
+
+      win.__app.backToModeSelect();
+      assertEqual(win.document.getElementById('mode-select-root').style.display, '');
+
+      win.__app.enterNormalMode();
+      assertEqual(win.document.getElementById(c3id).value, '入力途中の値', 'STEP1を経由しただけなら1次入力の値は保たれるはず');
+    });
+
+    await testAsync('2次以降入力から「戻る」（btn-close-review）でSTEP1に戻る', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      structure.reviewFields = ['cell_R3_C4'];
+      const dom = await readyPageRaw(structure);
+      const win = dom.window;
+      win.__app.enterReviewMode();
+      win.document.getElementById('btn-close-review').click();
+      assertEqual(win.document.getElementById('mode-select-root').style.display, '');
+      assertEqual(win.document.getElementById('review-root').style.display, 'none');
+    });
+  });
+
   await runSuiteAsync('filler_app: STRUCTUREからのグリッド復元', async () => {
     await testAsync('実フィクスチャ由来のSTRUCTUREから、ビルダーと同じ行・列数でグリッドが描画される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
@@ -477,17 +573,17 @@ function buildSampleData(dom, values) {
   });
 
   await runSuiteAsync('filler_app: レビュー画面（複数JSON読込・一覧表・詳細）', async () => {
-    await testAsync('レビュー欄が指定されていれば「2次以降用一括入力画面へ移動する」ボタンが表示される', async () => {
+    await testAsync('レビュー欄が指定されていればSTEP1の「2次以降入力」カードが表示される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       structure.reviewFields = ['cell_R3_C3'];
       const dom = await readyPage(structure);
-      assertEqual(dom.window.document.getElementById('btn-open-review').style.display, '');
+      assertEqual(dom.window.document.getElementById('btn-mode-review').style.display, '');
     });
 
-    await testAsync('レビュー欄が無指定なら「2次以降用一括入力画面へ移動する」ボタンは表示されない', async () => {
+    await testAsync('レビュー欄が無指定ならSTEP1の「2次以降入力」カードは表示されない', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const dom = await readyPage(structure);
-      assertEqual(dom.window.document.getElementById('btn-open-review').style.display, 'none');
+      assertEqual(dom.window.document.getElementById('btn-mode-review').style.display, 'none');
     });
 
     await testAsync('複数JSONを読み込むと件数分のレコードが追加され、同名ファイルは重複追加されない', async () => {
@@ -637,16 +733,19 @@ function buildSampleData(dom, values) {
       assertTrue(win.document.getElementById('status').textContent.includes('保存しました'));
     });
 
-    await testAsync('レビュー画面を閉じると、通常の入力グリッドが再描画される', async () => {
+    await testAsync('レビュー画面から「戻る」でSTEP1に戻り、そこから1次入力を選び直すとグリッドが再描画される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       structure.reviewFields = ['cell_R3_C4'];
       const dom = await readyPage(structure);
       const win = dom.window;
       win.__app.enterReviewMode();
       assertEqual(win.document.getElementById('grid-root').innerHTML, '');
-      win.__app.exitReviewMode();
-      assertTrue(win.document.getElementById('grid-root').innerHTML.length > 0, '通常画面に戻るとgrid-rootが再描画されるはず');
-      assertEqual(win.document.getElementById('actions').style.display, 'flex');
+      win.__app.backToModeSelect();
+      assertEqual(win.document.getElementById('mode-select-root').style.display, '', 'STEP1（選択画面）に戻るはず');
+      assertEqual(win.document.getElementById('grid-root').innerHTML, '', 'STEP1に戻った時点ではまだ再描画されない');
+      win.__app.enterNormalMode();
+      assertTrue(win.document.getElementById('grid-root').innerHTML.length > 0, '1次入力を選び直すとgrid-rootが再描画されるはず');
+      assertEqual(win.document.getElementById('normal-mode-root').style.display, '');
     });
 
     await testAsync('mergedDataForExportは、所管部署の元データにレビュー欄の現在値をマージする', async () => {
@@ -764,10 +863,10 @@ function buildSampleData(dom, values) {
       await waitFor(() => panel.style.display === 'none');
     });
 
-    await testAsync('一覧を離れる（exitReviewMode）と、body直下に残っていたフィルタpanelも片付けられる', async () => {
+    await testAsync('一覧を離れる（backToModeSelect）と、body直下に残っていたフィルタpanelも片付けられる', async () => {
       const { win } = await setupThreeRecords();
       assertTrue(win.document.querySelectorAll('.col-filter-panel').length > 0);
-      win.__app.exitReviewMode();
+      win.__app.backToModeSelect();
       assertEqual(win.document.querySelectorAll('.col-filter-panel').length, 0);
     });
 

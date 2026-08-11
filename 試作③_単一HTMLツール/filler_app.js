@@ -576,29 +576,47 @@ function bulkExportFiltered() {
   exportNext(0);
 }
 
-// 画面切替：'normal'（通常の1件入力）／'list'（レビュー一覧表）／'detail'（レビュー詳細・閲覧専用）。
-// #grid-rootと#review-detail-rootは同じSTRUCTURE（同じcellId体系）を使うため、
-// 同時に中身を持たせるとdocument.getElementByIdが衝突する。表示していない方は
-// 必ず空にしておく（切替のたびにDOMを作り直すコストより、事故を防ぐことを優先する）。
+// 画面切替：'select'（STEP1・入力画面の選択）／'normal'（1次入力）／'list'（レビュー一覧表）／
+// 'detail'（レビュー詳細）。#grid-rootと#review-detail-rootは同じSTRUCTURE（同じcellId体系）を
+// 使うため、同時に中身を持たせるとdocument.getElementByIdが衝突する。'list'へ入る際に
+// #grid-rootを空にする運用（enterReviewMode参照）は維持し、詳細画面がいつ開かれても
+// 衝突しないようにする。
 function showScreen(name) {
-  $('#actions').style.display = name === 'normal' ? 'flex' : 'none';
-  $('#grid-root').style.display = name === 'normal' ? '' : 'none';
-  $('#grid-hint').style.display = name === 'normal' ? '' : 'none';
+  $('#mode-select-root').style.display = name === 'select' ? '' : 'none';
+  $('#normal-mode-root').style.display = name === 'normal' ? '' : 'none';
   $('#review-root').style.display = name === 'list' ? '' : 'none';
   $('#review-detail-root-wrap').style.display = name === 'detail' ? '' : 'none';
 }
 
+// 1次入力のグリッドは初回だけ描画し、以後はSTEP1（入力画面の選択）との行き来では
+// 表示/非表示を切り替えるだけにする（入力途中の値を保持するため、毎回作り直さない）。
+// レビュー画面へ移った場合は#grid-rootが空にされる（enterReviewMode参照。IDの衝突回避が
+// 目的で、1次入力の途中経過はそこで失われる）ため、normalModeRenderedをfalseに戻し、
+// 次にenterNormalModeが呼ばれたときに再描画されるようにする。
+let normalModeRendered = false;
+
+function enterNormalMode() {
+  if (!normalModeRendered) {
+    GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
+    normalModeRendered = true;
+  }
+  showScreen('normal');
+}
+
 function enterReviewMode() {
   $('#grid-root').innerHTML = '';
+  normalModeRendered = false;
   showScreen('list');
   renderReviewList();
 }
 
-function exitReviewMode() {
+// STEP1（入力画面の選択）に戻る。レビュー詳細・列フィルタのドロップダウンが
+// 残っていれば片付ける。#grid-rootはここでは触らない（1次入力の途中経過を、
+// STEP1を経由して1次入力に戻ってきたときのために保持するため）。
+function backToModeSelect() {
   $('#review-detail-root').innerHTML = '';
   removeFilterPanelNodes();
-  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
-  showScreen('normal');
+  showScreen('select');
 }
 
 // 詳細画面は「所管部署の入力を閲覧するだけ」ではなく、通常グリッド画面と同じく
@@ -682,13 +700,14 @@ async function handleReviewFileInput(fileList) {
 
 function init() {
   STATE = buildStateFromStructure(STRUCTURE);
-  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
   REVIEW.visibleCols = new Set(STRUCTURE.displayCandidateFields || []);
 
-  // レビュー欄が1つも指定されていない様式では、レビュー画面自体を提供しない。
+  // レビュー欄が1つも指定されていない様式では、STEP1（入力画面の選択）自体を
+  // 出さず、1次入力からそのまま始める（1段階しか無い様式にまで選択を強いない）。
   // 色分けの凡例も同じ条件で出し分ける（区別する意味が無いため）。
-  if ((STRUCTURE.reviewFields || []).length > 0) {
-    $('#btn-open-review').style.display = '';
+  const hasReview = (STRUCTURE.reviewFields || []).length > 0;
+  if (hasReview) {
+    $('#btn-mode-review').style.display = '';
     $('#field-legend').style.display = '';
   }
   if (window.showDirectoryPicker) {
@@ -700,8 +719,10 @@ function init() {
     $('#export-dir-bar').style.display = 'flex';
   }
 
-  $('#btn-open-review').addEventListener('click', enterReviewMode);
-  $('#btn-close-review').addEventListener('click', exitReviewMode);
+  $('#btn-mode-normal').addEventListener('click', enterNormalMode);
+  $('#btn-mode-review').addEventListener('click', enterReviewMode);
+  $('#btn-back-to-select').addEventListener('click', backToModeSelect);
+  $('#btn-close-review').addEventListener('click', backToModeSelect);
   $('#btn-back-to-review-list').addEventListener('click', backToReviewListFromDetail);
   $('#btn-save-detail').addEventListener('click', saveDetailAndBackToList);
   $('#btn-print-grid').addEventListener('click', () => window.print());
@@ -756,6 +777,14 @@ function init() {
   });
 
   GridRender.setupPasteHandler(STATE, $('#status'));
+
+  // レビュー欄が定義されている様式ではSTEP1（入力画面の選択）から始める。
+  // 定義が無い様式（1段階しか無い様式）では選択を挟まず、直接1次入力から始める。
+  if (hasReview) {
+    showScreen('select');
+  } else {
+    enterNormalMode();
+  }
 }
 
 if (typeof window !== 'undefined') {
@@ -769,7 +798,7 @@ if (typeof window !== 'undefined') {
     get REVIEW() { return REVIEW; },
     upsertRecords, extractFieldValues, mergedDataForExport, isRecordComplete,
     filteredRecords, renderReviewBody, bulkPrintFiltered, cleanupBulkPrint, bulkExportFiltered,
-    buildExportFileNameForRecord, renderReviewList, enterReviewMode, exitReviewMode,
+    buildExportFileNameForRecord, renderReviewList, enterReviewMode, enterNormalMode, backToModeSelect,
     openReviewDetail, backToReviewListFromDetail, saveDetailAndBackToList, handleReviewFileInput,
     pickReviewDirectory, scanReviewDirectory,
     saveBlob, pickExportDirectory,

@@ -21,7 +21,18 @@
   @keyframes status-pulse{ 0%{background:#ffe9a8;} 100%{background:var(--accent-bg);} }
   #export-dir-bar{display:none; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap; padding:8px 10px; background:var(--accent-bg); border:1px solid var(--line); border-radius:6px;}
   #export-dir-status{font-size:.8rem; color:var(--sub);}
-  #actions{display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center;}
+  .action-bar{display:flex; gap:10px; align-items:center; margin:8px 0 16px; flex-wrap:wrap;}
+  p.step-label{font-size:.85rem; font-weight:bold; color:var(--accent); margin:20px 0 8px;}
+  .mode-back-btn{margin-bottom:8px;}
+  #mode-select-cards{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:8px;}
+  .mode-card{
+    flex:1 1 240px; min-width:220px; text-align:left; background:#fff; color:var(--ink);
+    border:1px solid var(--line); border-radius:10px; padding:16px 18px; cursor:pointer;
+    display:flex; flex-direction:column; gap:6px; font-family:inherit;
+  }
+  .mode-card:hover{border-color:var(--accent); background:var(--accent-bg);}
+  .mode-card-title{font-size:1rem; font-weight:bold; color:var(--accent);}
+  .mode-card-desc{font-size:.8rem; color:var(--sub);}
   button{
     font-family:inherit; font-size:.88rem; padding:9px 16px; border-radius:6px; border:1px solid var(--accent);
     background:var(--accent); color:#fff; cursor:pointer;
@@ -63,14 +74,11 @@
   .legend-swatch-primary{background:#d7e9fb; border-left:4px solid #3676b8;}
   .legend-swatch-review{background:#ffe3ad; border-left:4px solid #d3790f;}
 
-  #review-actions{display:flex; gap:10px; margin:10px 0; flex-wrap:wrap; align-items:center;}
   #review-col-toggle{display:flex; flex-wrap:wrap; gap:6px 14px; margin:10px 0; padding:8px 10px; background:var(--card); border:1px solid var(--line); border-radius:6px; font-size:.78rem;}
   #review-col-toggle label{display:flex; align-items:center; gap:4px; cursor:pointer; white-space:nowrap;}
   #review-status-filter{font-size:.78rem; margin:8px 0;}
   #review-status-filter select{font-family:inherit; font-size:.8rem; padding:2px 4px;}
   #review-summary{font-size:.82rem; color:var(--sub); margin:8px 0;}
-  .review-action-bar{display:flex; gap:10px; align-items:center; margin:8px 0; flex-wrap:wrap;}
-  #review-top-bar{margin-bottom:8px;}
   #bulk-print-root{display:none;}
   .bulk-print-record{margin-bottom:24px;}
   .bulk-print-record h2{font-size:1rem; margin:0 0 8px;}
@@ -115,7 +123,7 @@
 <div class="wrap">
   <h1 class="no-print">__FORM_TITLE__</h1>
   <p class="lead no-print">
-    このフォームに入力し、「入力内容をJSONで書き出す」ボタンから結果を保存してください。<br>
+    下のSTEP1でどちらの入力画面を使うか選び、画面の案内に沿って入力・書き出しを行ってください。<br>
     通信は一切行いません（ブラウザの中だけで完結します）。保存したJSONファイルは庁内の共有ドライブ等でやり取りできます。
   </p>
 
@@ -123,38 +131,64 @@
     <button class="secondary" id="btn-pick-export-dir">📁 書き出し先フォルダを指定する（Edge/Chrome）</button>
     <span id="export-dir-status" class="hint">指定すると、以後のJSON書き出しはダウンロードではなくこのフォルダへ直接保存されます（通常画面・レビュー画面どちらの書き出しにも適用されます）。</span>
   </div>
-
-  <div id="actions" class="no-print">
-    <button id="btn-export">📋 入力内容をJSONで書き出す</button>
-    <button class="secondary" onclick="document.getElementById('file-load-json').click()">📂 保存済みJSONを読み込む</button>
-    <input type="file" id="file-load-json" accept="application/json" style="display:none">
-    <button class="secondary" id="btn-open-review" style="display:none">📑 2次以降用一括入力画面へ移動する</button>
-    <button class="secondary" id="btn-print-grid">🖨 この画面を印刷する</button>
-  </div>
   <div id="status" class="no-print"></div>
 
-  <p class="hint no-print" id="grid-hint">※ 見出し（灰色）・「（自動計算）」のセルは入力対象外です。空欄セルに直接入力してください。</p>
-  <p class="hint no-print" id="field-legend" style="display:none">
-    <span class="legend-item"><span class="legend-swatch legend-swatch-primary"></span>1次入力欄</span>
-    <span class="legend-item"><span class="legend-swatch legend-swatch-review"></span>2次以降入力欄（レビュー欄。どのセルも入力は自由ですが、色は入力担当の目安です）</span>
-  </p>
-  <div id="grid-root"></div>
+  <div id="mode-select-root">
+    <p class="step-label no-print">STEP1：入力画面を選ぶ</p>
+    <div id="mode-select-cards" class="no-print">
+      <button type="button" class="mode-card" id="btn-mode-normal">
+        <span class="mode-card-title">📝 1次入力</span>
+        <span class="mode-card-desc">新規に1件、事業の内容を入力します。</span>
+      </button>
+      <button type="button" class="mode-card" id="btn-mode-review" style="display:none">
+        <span class="mode-card-title">📑 2次以降入力</span>
+        <span class="mode-card-desc">複数の入力結果をまとめてレビュー・追記します。</span>
+      </button>
+    </div>
+  </div>
+
+  <div id="normal-mode-root" style="display:none">
+    <button class="secondary no-print mode-back-btn" id="btn-back-to-select">← STEP1に戻る（入力画面を選び直す）</button>
+
+    <p class="step-label no-print">STEP2：読み込み（任意）</p>
+    <div id="normal-load-bar" class="action-bar no-print">
+      <button class="secondary" onclick="document.getElementById('file-load-json').click()">📂 保存済みJSONを読み込む</button>
+      <input type="file" id="file-load-json" accept="application/json" style="display:none">
+      <span class="hint">新規に入力する場合は、何も読み込まずそのまま次へ進んでください。</span>
+    </div>
+
+    <p class="step-label no-print">STEP3：入力</p>
+    <p class="hint no-print" id="grid-hint">※ 見出し（灰色）・「（自動計算）」のセルは入力対象外です。空欄セルに直接入力してください。</p>
+    <p class="hint no-print" id="field-legend" style="display:none">
+      <span class="legend-item"><span class="legend-swatch legend-swatch-primary"></span>1次入力欄</span>
+      <span class="legend-item"><span class="legend-swatch legend-swatch-review"></span>2次以降入力欄（レビュー欄。どのセルも入力は自由ですが、色は入力担当の目安です）</span>
+    </p>
+    <div id="grid-root"></div>
+
+    <p class="step-label no-print">STEP4：書き出す</p>
+    <div id="actions" class="action-bar no-print">
+      <button id="btn-export">📋 入力内容をJSONで書き出す</button>
+      <button class="secondary" id="btn-print-grid">🖨 この画面を印刷する</button>
+    </div>
+  </div>
 
   <div id="review-root" style="display:none">
-    <div id="review-top-bar" class="no-print">
-      <button class="secondary" id="btn-close-review">← 通常の入力画面に戻る</button>
-    </div>
-    <p class="lead no-print">
-      複数の事業のJSONをまとめて読み込み、一覧表でレビュー欄（判定・コメント等）を入力できます。
-      各行の「詳細」から、所管部署が入力した内容を確認・編集できます。
-    </p>
-    <div id="review-actions" class="no-print">
+    <button class="secondary no-print mode-back-btn" id="btn-close-review">← STEP1に戻る（入力画面を選び直す）</button>
+
+    <p class="step-label no-print">STEP2：読み込み</p>
+    <div id="review-actions" class="action-bar no-print">
       <button class="secondary" onclick="document.getElementById('review-file-load').click()">📂 JSONファイルを選ぶ（複数可）</button>
       <input type="file" id="review-file-load" accept="application/json" multiple style="display:none">
       <button class="secondary" id="review-btn-pick-dir" style="display:none">📁 フォルダを指定する（Edge/Chrome）</button>
       <button class="secondary" id="review-btn-refresh" style="display:none">🔄 更新</button>
     </div>
     <p class="hint no-print">共有フォルダ（提出用サーバー等）を直接指定できるのはEdge・Chromeのみです。それ以外のブラウザでは、ローカルの専用フォルダにJSONを集めておき、都度「JSONファイルを選ぶ」で選び直してください。</p>
+
+    <p class="step-label no-print">STEP3：入力</p>
+    <div id="review-print-bar" class="action-bar no-print">
+      <button class="secondary" id="btn-bulk-print">🖨 絞り込み結果を一括印刷</button>
+      <span class="hint">現在の絞り込み結果（列フィルタ・状態）を対象に、1件ずつページを分けて印刷します。レビュー記入の参考資料としてご利用ください。</span>
+    </div>
     <div id="review-col-toggle" class="no-print"></div>
     <div id="review-status-filter" class="no-print">
       <label>状態で絞り込み：
@@ -166,12 +200,10 @@
       </label>
     </div>
     <div id="review-summary" class="no-print"></div>
-    <div id="review-print-bar" class="review-action-bar no-print">
-      <button class="secondary" id="btn-bulk-print">🖨 絞り込み結果を一括印刷</button>
-      <span class="hint">現在の絞り込み結果（列フィルタ・状態）を対象に、1件ずつページを分けて印刷します。レビュー記入の参考資料としてご利用ください。</span>
-    </div>
     <div id="review-table-root"></div>
-    <div id="review-export-bar" class="review-action-bar no-print">
+
+    <p class="step-label no-print">STEP4：書き出す</p>
+    <div id="review-export-bar" class="action-bar no-print">
       <button class="secondary" id="btn-bulk-export">📦 絞り込み結果を一括書き出す</button>
       <span class="hint">現在の絞り込み結果（列フィルタ・状態）を対象に書き出します。書き出し先フォルダを指定していない場合、ファイルごとに個別のダウンロードになります。</span>
     </div>
@@ -1898,29 +1930,47 @@ function bulkExportFiltered() {
   exportNext(0);
 }
 
-// 画面切替：'normal'（通常の1件入力）／'list'（レビュー一覧表）／'detail'（レビュー詳細・閲覧専用）。
-// #grid-rootと#review-detail-rootは同じSTRUCTURE（同じcellId体系）を使うため、
-// 同時に中身を持たせるとdocument.getElementByIdが衝突する。表示していない方は
-// 必ず空にしておく（切替のたびにDOMを作り直すコストより、事故を防ぐことを優先する）。
+// 画面切替：'select'（STEP1・入力画面の選択）／'normal'（1次入力）／'list'（レビュー一覧表）／
+// 'detail'（レビュー詳細）。#grid-rootと#review-detail-rootは同じSTRUCTURE（同じcellId体系）を
+// 使うため、同時に中身を持たせるとdocument.getElementByIdが衝突する。'list'へ入る際に
+// #grid-rootを空にする運用（enterReviewMode参照）は維持し、詳細画面がいつ開かれても
+// 衝突しないようにする。
 function showScreen(name) {
-  $('#actions').style.display = name === 'normal' ? 'flex' : 'none';
-  $('#grid-root').style.display = name === 'normal' ? '' : 'none';
-  $('#grid-hint').style.display = name === 'normal' ? '' : 'none';
+  $('#mode-select-root').style.display = name === 'select' ? '' : 'none';
+  $('#normal-mode-root').style.display = name === 'normal' ? '' : 'none';
   $('#review-root').style.display = name === 'list' ? '' : 'none';
   $('#review-detail-root-wrap').style.display = name === 'detail' ? '' : 'none';
 }
 
+// 1次入力のグリッドは初回だけ描画し、以後はSTEP1（入力画面の選択）との行き来では
+// 表示/非表示を切り替えるだけにする（入力途中の値を保持するため、毎回作り直さない）。
+// レビュー画面へ移った場合は#grid-rootが空にされる（enterReviewMode参照。IDの衝突回避が
+// 目的で、1次入力の途中経過はそこで失われる）ため、normalModeRenderedをfalseに戻し、
+// 次にenterNormalModeが呼ばれたときに再描画されるようにする。
+let normalModeRendered = false;
+
+function enterNormalMode() {
+  if (!normalModeRendered) {
+    GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
+    normalModeRendered = true;
+  }
+  showScreen('normal');
+}
+
 function enterReviewMode() {
   $('#grid-root').innerHTML = '';
+  normalModeRendered = false;
   showScreen('list');
   renderReviewList();
 }
 
-function exitReviewMode() {
+// STEP1（入力画面の選択）に戻る。レビュー詳細・列フィルタのドロップダウンが
+// 残っていれば片付ける。#grid-rootはここでは触らない（1次入力の途中経過を、
+// STEP1を経由して1次入力に戻ってきたときのために保持するため）。
+function backToModeSelect() {
   $('#review-detail-root').innerHTML = '';
   removeFilterPanelNodes();
-  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
-  showScreen('normal');
+  showScreen('select');
 }
 
 // 詳細画面は「所管部署の入力を閲覧するだけ」ではなく、通常グリッド画面と同じく
@@ -2004,13 +2054,14 @@ async function handleReviewFileInput(fileList) {
 
 function init() {
   STATE = buildStateFromStructure(STRUCTURE);
-  GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
   REVIEW.visibleCols = new Set(STRUCTURE.displayCandidateFields || []);
 
-  // レビュー欄が1つも指定されていない様式では、レビュー画面自体を提供しない。
+  // レビュー欄が1つも指定されていない様式では、STEP1（入力画面の選択）自体を
+  // 出さず、1次入力からそのまま始める（1段階しか無い様式にまで選択を強いない）。
   // 色分けの凡例も同じ条件で出し分ける（区別する意味が無いため）。
-  if ((STRUCTURE.reviewFields || []).length > 0) {
-    $('#btn-open-review').style.display = '';
+  const hasReview = (STRUCTURE.reviewFields || []).length > 0;
+  if (hasReview) {
+    $('#btn-mode-review').style.display = '';
     $('#field-legend').style.display = '';
   }
   if (window.showDirectoryPicker) {
@@ -2022,8 +2073,10 @@ function init() {
     $('#export-dir-bar').style.display = 'flex';
   }
 
-  $('#btn-open-review').addEventListener('click', enterReviewMode);
-  $('#btn-close-review').addEventListener('click', exitReviewMode);
+  $('#btn-mode-normal').addEventListener('click', enterNormalMode);
+  $('#btn-mode-review').addEventListener('click', enterReviewMode);
+  $('#btn-back-to-select').addEventListener('click', backToModeSelect);
+  $('#btn-close-review').addEventListener('click', backToModeSelect);
   $('#btn-back-to-review-list').addEventListener('click', backToReviewListFromDetail);
   $('#btn-save-detail').addEventListener('click', saveDetailAndBackToList);
   $('#btn-print-grid').addEventListener('click', () => window.print());
@@ -2078,6 +2131,14 @@ function init() {
   });
 
   GridRender.setupPasteHandler(STATE, $('#status'));
+
+  // レビュー欄が定義されている様式ではSTEP1（入力画面の選択）から始める。
+  // 定義が無い様式（1段階しか無い様式）では選択を挟まず、直接1次入力から始める。
+  if (hasReview) {
+    showScreen('select');
+  } else {
+    enterNormalMode();
+  }
 }
 
 if (typeof window !== 'undefined') {
@@ -2091,7 +2152,7 @@ if (typeof window !== 'undefined') {
     get REVIEW() { return REVIEW; },
     upsertRecords, extractFieldValues, mergedDataForExport, isRecordComplete,
     filteredRecords, renderReviewBody, bulkPrintFiltered, cleanupBulkPrint, bulkExportFiltered,
-    buildExportFileNameForRecord, renderReviewList, enterReviewMode, exitReviewMode,
+    buildExportFileNameForRecord, renderReviewList, enterReviewMode, enterNormalMode, backToModeSelect,
     openReviewDetail, backToReviewListFromDetail, saveDetailAndBackToList, handleReviewFileInput,
     pickReviewDirectory, scanReviewDirectory,
     saveBlob, pickExportDirectory,
