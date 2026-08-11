@@ -764,9 +764,12 @@ function downloadBlob(blob, filename) {
 
 // EXPORT_DIR_HANDLEへ直接書き込む。同名ファイルが既にあれば上書き確認をはさむ
 // （getFileHandle(name,{create:true})は無警告で上書きしてしまうため）。フォルダへの
-// 書き込みに失敗した場合（権限が切れた等）は、通常のダウンロードにフォールバックする。
-// 戻り値："dir"（直接保存）｜"download"（フォールバック）｜"cancelled"（上書きを拒否）。
-// filler_app.jsの同名関数群と設計は同一（詳細はそちらのコメント参照）。
+// 書き込みに失敗した場合（共有フォルダの権限が無い等）は、通常のダウンロードに
+// フォールバックする。
+// 戻り値："dir"（直接保存）｜"download-failed"（書き込み失敗によるフォールバック）｜
+// "cancelled"（上書きを拒否）。"download-failed"を"download"（フォルダ未指定時の通常
+// ダウンロード）と区別する理由も含め、filler_app.jsの同名関数群と設計は同一
+// （詳細はそちらのコメント参照）。
 async function saveToExportDir(blob, filename) {
   try {
     let exists = false;
@@ -781,7 +784,7 @@ async function saveToExportDir(blob, filename) {
     return 'dir';
   } catch (e) {
     downloadBlob(blob, filename);
-    return 'download';
+    return 'download-failed';
   }
 }
 
@@ -802,6 +805,7 @@ function saveBlob(blob, filename, onDone) {
 function statusMessageForSave(result, filename, downloadMessage) {
   if (result === 'dir') return `指定フォルダへ保存しました: ${filename}`;
   if (result === 'cancelled') return `書き出しを中止しました（「${filename}」は指定フォルダに既にあります）。`;
+  if (result === 'download-failed') return `⚠️ 指定フォルダへの保存に失敗したため、通常のダウンロードで保存しました: ${filename}`;
   return downloadMessage;
 }
 

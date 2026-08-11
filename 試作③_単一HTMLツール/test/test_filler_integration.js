@@ -1266,8 +1266,24 @@ function buildSampleData(dom, values) {
       const result = await new Promise((resolve) => {
         win.__app.saveBlob(new win.Blob(['{}']), 'test.json', resolve);
       });
-      assertEqual(result, 'download', '書き込み失敗時は通常のダウンロードにフォールバックするはず');
+      assertEqual(result, 'download-failed', '書き込み失敗時は通常のダウンロードにフォールバックするが、フォルダ未指定時の"download"とは区別されるはず');
       assertTrue(clicked);
+    });
+
+    await testAsync('書き込み失敗時のステータス文言は、フォルダ未指定時の文言と区別され警告が付く', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      win.__app.setExportDirHandle(makeFailingDirHandle());
+      win.URL.createObjectURL = () => 'blob:mock';
+      win.HTMLAnchorElement.prototype.click = function () {};
+      win.document.getElementById('btn-export').click();
+      // saveToExportDir()は非同期（EXPORT_DIR_HANDLE指定時のsaveBlobはPromiseのthenでonDoneを呼ぶ）
+      // のため、#statusへの反映を待つ必要がある。
+      await waitFor(() => win.document.getElementById('status').textContent !== '');
+      const status = win.document.getElementById('status').textContent;
+      assertTrue(status.includes('⚠️'), '書き込み失敗時は警告アイコン付きの文言になるはず: ' + status);
+      assertTrue(status.includes('指定フォルダへの保存に失敗したため'), status);
     });
 
     await testAsync('レビュー画面の個別「書き出す」ボタンもEXPORT_DIR_HANDLEを尊重する', async () => {

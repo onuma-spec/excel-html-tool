@@ -923,6 +923,45 @@ function setModalInput(win, id, value) {
       assertEqual(asyncResult, 'dir');
       assertEqual(JSON.parse(dirHandle.written['b.json']), { x: 1 });
     });
+
+    // getFileHandleが常に例外を投げる壊れたハンドル（権限エラー等のシミュレーション用）。
+    // filler_app.js側のtest_filler_integration.jsにある同名ヘルパーと同じ設計。
+    function makeFailingDirHandle() {
+      return {
+        name: 'broken-folder',
+        async getFileHandle(name, opts) {
+          if (opts && opts.create) throw new Error('NotAllowedError');
+          const err = new Error('not found'); err.name = 'NotFoundError'; throw err;
+        },
+      };
+    }
+
+    await testAsync('フォルダへの書き込みに失敗した場合はダウンロードにフォールバックし、"download-failed"（フォルダ未指定時の"download"とは区別される値）を返す', async () => {
+      const dom = newBuilderPage();
+      const win = dom.window;
+      await loadFixture(dom, FIXTURE);
+      win.__app.setExportDirHandle(makeFailingDirHandle());
+      let clicked = false;
+      win.HTMLAnchorElement.prototype.click = function () { clicked = true; };
+      const result = await new Promise((resolve) => {
+        win.__app.saveBlob(new win.Blob(['{}']), 'test.json', resolve);
+      });
+      assertEqual(result, 'download-failed');
+      assertTrue(clicked);
+    });
+
+    await testAsync('書き込み失敗時のステータス文言は、フォルダ未指定時の文言と区別され警告が付く', async () => {
+      const dom = newBuilderPage();
+      const win = dom.window;
+      await loadFixture(dom, FIXTURE);
+      win.__app.setExportDirHandle(makeFailingDirHandle());
+      win.__app.doExportAsForm();
+      // #statusはファイル読込時のメッセージで既に非空のため、警告アイコンが現れるのを待つ。
+      await waitFor(() => win.document.getElementById('status').textContent.includes('⚠️'));
+      const status = win.document.getElementById('status').textContent;
+      assertTrue(status.includes('⚠️'), '書き込み失敗時は警告アイコン付きの文言になるはず: ' + status);
+      assertTrue(status.includes('指定フォルダへの保存に失敗したため'), status);
+    });
   });
 
   const ok = summary();
