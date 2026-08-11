@@ -31,6 +31,15 @@ function waitFor(predicate, timeoutMs, intervalMs) {
   });
 }
 
+// 列フィルタ（.col-filter-panel、状態列も同じ仕組みに統一済み）で、指定したラベル文字と
+// 完全一致するチェックボックスのチェックを外す（＝その値を絞り込みから除外する）。
+function uncheckFilterValue(win, labelText) {
+  const label = [...win.document.querySelectorAll('.col-filter-panel label')].find(l => l.textContent === labelText);
+  const cb = label.querySelector('input');
+  cb.checked = false;
+  cb.dispatchEvent(new win.Event('change'));
+}
+
 // serializeStructure()（builder_app.js）と同じ形をNode単体で（DOM無しで）再現する。
 // filler_app.jsが実際に受け取るデータ形そのままなので、フィクスチャからそのまま作れる。
 function buildStructureFromFixture(fixturePath, formTitle) {
@@ -136,11 +145,6 @@ function newFillerPage(structure) {
         <button id="btn-bulk-print">bulkprint</button>
       </div>
       <div id="review-col-toggle"></div>
-      <select id="review-status-select">
-        <option value="all">all</option>
-        <option value="undone">undone</option>
-        <option value="done">done</option>
-      </select>
       <div id="review-summary"></div>
       <div id="review-table-root"></div>
       <div id="review-export-bar">
@@ -823,6 +827,24 @@ function buildSampleData(dom, values) {
       assertEqual(win.document.getElementById('review-summary').textContent, '3件中 1件 レビュー完了');
     });
 
+    await testAsync('レビュー欄（入力欄）のtdにはreview-input-cellクラスが付き、識別列のtdには付かない', async () => {
+      const { win } = await setupThreeRecords();
+      const firstRow = win.document.querySelector('#review-tbody tr');
+      const cells = [...firstRow.children];
+      const inputCells = cells.filter(td => td.classList.contains('review-input-cell'));
+      assertEqual(inputCells.length, 1, 'reviewFieldsは1項目だけ指定しているのでtdも1つのはず');
+      assertTrue(!!inputCells[0].querySelector('textarea'), 'review-input-cellの中にはレビュー欄のtextareaがあるはず');
+      assertFalse(cells[0].classList.contains('review-input-cell'), '識別列（事業名）のtdには付かないはず');
+    });
+
+    await testAsync('「状態」列にも列見出しの▼（絞り込み方法が1種類に統一されている）が付く', async () => {
+      const { win } = await setupThreeRecords();
+      const headCells = [...win.document.querySelectorAll('#review-table-root thead th')];
+      const statusTh = headCells.find(th => th.textContent.startsWith('状態'));
+      assertTrue(!!statusTh, '状態列のth自体は存在するはず');
+      assertTrue(!!statusTh.querySelector('.col-filter'), '状態列にも識別列と同じ▼フィルタが付くはず');
+    });
+
     await testAsync('列フィルタ：ある値のチェックを外すと、その値を持つ行だけ一覧から消える（他の値は残る）', async () => {
       const { win, c3id } = await setupThreeRecords();
       const cb = [...win.document.querySelectorAll('.col-filter-panel label')]
@@ -870,35 +892,25 @@ function buildSampleData(dom, values) {
       assertEqual(win.document.querySelectorAll('.col-filter-panel').length, 0);
     });
 
-    await testAsync('ステータス絞り込み：「完了」を選ぶとレビュー欄が埋まっている行だけ表示される', async () => {
+    await testAsync('「状態」列の▼で「未完了」を外すと、レビュー欄が埋まっている行だけ表示される', async () => {
       const { win } = await setupThreeRecords();
-      const select = win.document.getElementById('review-status-select');
-      select.value = 'done';
-      select.dispatchEvent(new win.Event('change'));
+      uncheckFilterValue(win, '未完了');
       const rows = win.document.querySelectorAll('#review-tbody tr');
       assertEqual(rows.length, 1);
       assertTrue(rows[0].textContent.includes('部署A'));
     });
 
-    await testAsync('ステータス絞り込み：「未完了」を選ぶとレビュー欄が空欄の行だけ表示される', async () => {
+    await testAsync('「状態」列の▼で「完了」を外すと、レビュー欄が空欄の行だけ表示される', async () => {
       const { win } = await setupThreeRecords();
-      const select = win.document.getElementById('review-status-select');
-      select.value = 'undone';
-      select.dispatchEvent(new win.Event('change'));
+      uncheckFilterValue(win, '完了');
       const rows = win.document.querySelectorAll('#review-tbody tr');
       assertEqual(rows.length, 2);
     });
 
-    await testAsync('列フィルタとステータス絞り込みはAND条件で組み合わさる', async () => {
+    await testAsync('識別列の▼と「状態」列の▼はAND条件で組み合わさる（絞り込み方法が1種類に統一されている）', async () => {
       const { win } = await setupThreeRecords();
-      const cb = [...win.document.querySelectorAll('.col-filter-panel label')]
-        .find(l => l.textContent === '部署B').querySelector('input');
-      cb.checked = false;
-      cb.dispatchEvent(new win.Event('change')); // 部署Aの2件（1完了・1未完了）だけに絞る
-
-      const select = win.document.getElementById('review-status-select');
-      select.value = 'done';
-      select.dispatchEvent(new win.Event('change'));
+      uncheckFilterValue(win, '部署B'); // 部署Aの2件（1完了・1未完了）だけに絞る
+      uncheckFilterValue(win, '未完了');
 
       const rows = win.document.querySelectorAll('#review-tbody tr');
       assertEqual(rows.length, 1, '部署A かつ 完了、の1件だけになるはず');
@@ -943,10 +955,9 @@ function buildSampleData(dom, values) {
       assertTrue(win.document.body.classList.contains('bulk-printing'));
     });
 
-    await testAsync('ステータス絞り込み中にbulkPrintFilteredを呼ぶと、絞り込んだ件数分だけ印刷対象になる', async () => {
+    await testAsync('「状態」列の▼で絞り込み中にbulkPrintFilteredを呼ぶと、絞り込んだ件数分だけ印刷対象になる', async () => {
       const { win } = await setupTwoRecordsForPrint();
-      win.document.getElementById('review-status-select').value = 'done';
-      win.document.getElementById('review-status-select').dispatchEvent(new win.Event('change'));
+      uncheckFilterValue(win, '未完了');
       win.print = () => {};
       win.__app.bulkPrintFiltered();
       const sections = win.document.querySelectorAll('#bulk-print-root .bulk-print-record');
@@ -1036,10 +1047,9 @@ function buildSampleData(dom, values) {
       assertEqual(win.document.getElementById('status').textContent, '2件を書き出しました。');
     });
 
-    await testAsync('ステータス絞り込み中に呼ぶと、絞り込んだ件数分だけ書き出し対象になる', async () => {
+    await testAsync('「状態」列の▼で絞り込み中に呼ぶと、絞り込んだ件数分だけ書き出し対象になる', async () => {
       const { win } = await setupTwoRecordsForExport();
-      win.document.getElementById('review-status-select').value = 'done';
-      win.document.getElementById('review-status-select').dispatchEvent(new win.Event('change'));
+      uncheckFilterValue(win, '未完了');
       win.URL.createObjectURL = () => 'blob:mock';
       let clickCount = 0;
       win.HTMLAnchorElement.prototype.click = function () { clickCount++; };

@@ -205,9 +205,10 @@ function readFileAsText(file) {
 // records: [{ fileName, data(読み込んだ生JSON), displayValues({cellId:value}), reviewValues({cellId:value}) }]
 // visibleCols: 一覧表に列として表示するdisplayCandidateFieldsの部分集合（初期値は全件表示）。
 // dirHandle: showDirectoryPicker()で選んだFileSystemDirectoryHandle（Chromium限定）。
-// colFilters: Map<cellId, Set<選択中の値>>（Excel風のオートフィルタ。未操作の列はエントリ無し＝絞り込みなし）。
-// statusFilter: 'all'|'done'|'undone'（レビュー欄が全て埋まっているかによる絞り込み）。
-const REVIEW = { records: [], visibleCols: new Set(), dirHandle: null, colFilters: new Map(), statusFilter: 'all' };
+// colFilters: Map<cellId|STATUS_FILTER_ID, Set<選択中の値>>（Excel風のオートフィルタ。
+// 「状態」列（レビュー欄が全て埋まっているか）もSTATUS_FILTER_IDという仮想列として
+// 同じ仕組みに乗せている。未操作の列はエントリ無し＝絞り込みなし。
+const REVIEW = { records: [], visibleCols: new Set(), dirHandle: null, colFilters: new Map() };
 
 // 詳細画面（openReviewDetail）で現在編集中のレコード・グリッド状態。
 // 全セル誰でも編集可能という方針のため、詳細画面は所管部署の入力を閲覧するだけでなく
@@ -319,39 +320,45 @@ function currentVisibleColIds() {
   return (STRUCTURE.displayCandidateFields || []).filter(id => REVIEW.visibleCols.has(id));
 }
 
-// 今読み込まれている全レコードから、その列（表示中の識別列）が実際に取りうる値の
-// 一覧を重複なく求める（Excelのオートフィルタのドロップダウン一覧と同じ考え方）。
+// 「状態」列はdisplayCandidateFields由来の実セルを持たない仮想列のため、専用のIDで
+// 列フィルタ（REVIEW.colFilters）に参加させる。絞り込み方法を「列見出しの▼」1種類に
+// 統一するため（以前は状態だけ別のセレクトボックスになっており方式が2種類あった）。
+const STATUS_FILTER_ID = '__status__';
+
+function columnValue(record, id) {
+  if (id === STATUS_FILTER_ID) return isRecordComplete(record) ? '完了' : '未完了';
+  return record.displayValues[id] || '';
+}
+
+// 今読み込まれている全レコードから、その列（表示中の識別列、または状態列）が
+// 実際に取りうる値の一覧を重複なく求める（Excelのオートフィルタのドロップダウン
+// 一覧と同じ考え方）。
 function uniqueColumnValues(id) {
   const set = new Set();
-  REVIEW.records.forEach(r => set.add(r.displayValues[id] || ''));
+  REVIEW.records.forEach(r => set.add(columnValue(r, id)));
   return Array.from(set).sort((a, b) => String(a).localeCompare(String(b), 'ja'));
 }
 
-// 列フィルタ（REVIEW.colFilters: Map<cellId, Set<選択中の値>>）とステータス絞り込み
-// （REVIEW.statusFilter）の両方を満たすレコードだけを返す。列フィルタは複数列に
-// またがる場合AND条件（Excelと同じ）。非表示列のフィルタは無視する（列を隠したら
-// その列による絞り込みも見えなくなるため、直感に反しないようにする）。
+// 列フィルタ（REVIEW.colFilters: Map<cellId|STATUS_FILTER_ID, Set<選択中の値>>）を
+// 満たすレコードだけを返す。複数列にまたがる場合AND条件（Excelと同じ）。状態列は
+// 表示/非表示の切り替え対象ではないため常にチェックする。非表示の識別列のフィルタは
+// 無視する（列を隠したらその列による絞り込みも見えなくなるため、直感に反しないように）。
 function matchesColFilters(record) {
-  for (const id of currentVisibleColIds()) {
+  const idsToCheck = currentVisibleColIds().concat([STATUS_FILTER_ID]);
+  for (const id of idsToCheck) {
     const allowed = REVIEW.colFilters.get(id);
     if (!allowed) continue; // このセッションでまだ操作されていない列＝絞り込みなし
-    if (!allowed.has(record.displayValues[id] || '')) return false;
+    if (!allowed.has(columnValue(record, id))) return false;
   }
   return true;
 }
 
-function matchesStatusFilter(record) {
-  if (REVIEW.statusFilter === 'done') return isRecordComplete(record);
-  if (REVIEW.statusFilter === 'undone') return !isRecordComplete(record);
-  return true;
-}
-
 function filteredRecords() {
-  return REVIEW.records.filter(r => matchesColFilters(r) && matchesStatusFilter(r));
+  return REVIEW.records.filter(r => matchesColFilters(r));
 }
 
 function hasActiveFilters() {
-  return REVIEW.colFilters.size > 0 || REVIEW.statusFilter !== 'all';
+  return REVIEW.colFilters.size > 0;
 }
 
 function updateReviewSummary(filtered) {
@@ -440,7 +447,10 @@ function renderReviewTable() {
     headRow.appendChild(th);
   });
   reviewFieldIds.forEach(id => headRow.appendChild(el('th', { text: labelForCellId(id) })));
-  headRow.appendChild(el('th', { text: '状態' }));
+  const statusTh = el('th');
+  statusTh.appendChild(document.createTextNode('状態 '));
+  statusTh.appendChild(buildColFilterDetails(STATUS_FILTER_ID));
+  headRow.appendChild(statusTh);
   headRow.appendChild(el('th', { text: '' }));
   thead.appendChild(headRow);
   table.appendChild(thead);
@@ -478,7 +488,7 @@ function renderReviewBody() {
         }
         updateReviewSummary(filteredRecords());
       });
-      const td = el('td'); td.appendChild(textarea);
+      const td = el('td', { class: 'review-input-cell' }); td.appendChild(textarea);
       tr.appendChild(td);
     });
     const statusTd = el('td', { class: 'review-status-cell' + (isRecordComplete(record) ? ' review-status-done' : ''), text: isRecordComplete(record) ? '✅完了' : '未完了' });
@@ -733,10 +743,6 @@ function init() {
   $('#review-file-load').addEventListener('change', (ev) => {
     handleReviewFileInput(ev.target.files);
     ev.target.value = '';
-  });
-  $('#review-status-select').addEventListener('change', (ev) => {
-    REVIEW.statusFilter = ev.target.value;
-    renderReviewBody();
   });
   $('#review-btn-pick-dir').addEventListener('click', pickReviewDirectory);
   $('#review-btn-refresh').addEventListener('click', scanReviewDirectory);

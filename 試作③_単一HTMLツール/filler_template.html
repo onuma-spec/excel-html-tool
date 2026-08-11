@@ -76,8 +76,6 @@
 
   #review-col-toggle{display:flex; flex-wrap:wrap; gap:6px 14px; margin:10px 0; padding:8px 10px; background:var(--card); border:1px solid var(--line); border-radius:6px; font-size:.78rem;}
   #review-col-toggle label{display:flex; align-items:center; gap:4px; cursor:pointer; white-space:nowrap;}
-  #review-status-filter{font-size:.78rem; margin:8px 0;}
-  #review-status-filter select{font-family:inherit; font-size:.8rem; padding:2px 4px;}
   #review-summary{font-size:.82rem; color:var(--sub); margin:8px 0;}
   #bulk-print-root{display:none;}
   .bulk-print-record{margin-bottom:24px;}
@@ -99,6 +97,8 @@
   }
   .col-filter-panel label{display:flex; align-items:center; gap:4px; white-space:nowrap; padding:2px 0; cursor:pointer;}
   table.review-table td.review-status-done{color:var(--accent); font-weight:bold;}
+  table.review-table td.review-input-cell{background:#ffe3ad; border-left:4px solid #d3790f;}
+  table.review-table td.review-input-cell textarea{background:transparent;}
   table.review-table textarea{width:100%; min-width:120px; font-family:inherit; font-size:.8rem; box-sizing:border-box;}
   #review-detail-root-wrap{margin-top:10px;}
   #review-detail-actions{display:flex; gap:10px; margin:10px 0; flex-wrap:wrap; align-items:center;}
@@ -187,25 +187,17 @@
     <p class="step-label no-print">STEP3：入力</p>
     <div id="review-print-bar" class="action-bar no-print">
       <button class="secondary" id="btn-bulk-print">🖨 絞り込み結果を一括印刷</button>
-      <span class="hint">現在の絞り込み結果（列フィルタ・状態）を対象に、1件ずつページを分けて印刷します。レビュー記入の参考資料としてご利用ください。</span>
+      <span class="hint">現在の絞り込み結果（列見出しの▼）を対象に、1件ずつページを分けて印刷します。レビュー記入の参考資料としてご利用ください。</span>
     </div>
     <div id="review-col-toggle" class="no-print"></div>
-    <div id="review-status-filter" class="no-print">
-      <label>状態で絞り込み：
-        <select id="review-status-select">
-          <option value="all">すべて</option>
-          <option value="undone">未完了</option>
-          <option value="done">完了</option>
-        </select>
-      </label>
-    </div>
+    <p class="hint no-print">🔍 列見出しの▼をクリックすると、その列の値で絞り込めます（「状態」列も同様に完了／未完了で絞り込めます）。<span class="legend-swatch legend-swatch-review" style="vertical-align:middle;"></span> オレンジ色のセルがレビュー欄（入力欄）です。</p>
     <div id="review-summary" class="no-print"></div>
     <div id="review-table-root"></div>
 
     <p class="step-label no-print">STEP4：書き出す</p>
     <div id="review-export-bar" class="action-bar no-print">
-      <button class="secondary" id="btn-bulk-export">📦 絞り込み結果を一括書き出す</button>
-      <span class="hint">現在の絞り込み結果（列フィルタ・状態）を対象に書き出します。書き出し先フォルダを指定していない場合、ファイルごとに個別のダウンロードになります。</span>
+      <button id="btn-bulk-export">📦 絞り込み結果を一括書き出す</button>
+      <span class="hint">現在の絞り込み結果（列見出しの▼）を対象に書き出します。書き出し先フォルダを指定していない場合、ファイルごとに個別のダウンロードになります。</span>
     </div>
   </div>
 
