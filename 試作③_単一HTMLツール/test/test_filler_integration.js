@@ -178,6 +178,10 @@ async function readyPage(structure) {
   const dom = newFillerPage(structure);
   await waitFor(() => dom.window.__app && dom.window.__app.STATE);
   dom.window.__app.enterNormalMode();
+  // jsdomはwindow.confirmを実装していない（呼ぶとfalsy）。既存テストの大半は
+  // enterReviewMode()が無条件で成功する前提のため、既定でOKを選んだことにしておく
+  // （confirmのキャンセル挙動を検証したいテストだけ、個別にfalseへ上書きすること）。
+  dom.window.confirm = () => true;
   return dom;
 }
 
@@ -266,6 +270,56 @@ function buildSampleData(dom, values) {
       win.document.getElementById('btn-close-review').click();
       assertEqual(win.document.getElementById('mode-select-root').style.display, '');
       assertEqual(win.document.getElementById('review-root').style.display, 'none');
+    });
+
+    await testAsync('hasUnsavedNormalInput：1次入力欄が全て空欄ならfalse、1つでも値があればtrue', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      structure.reviewFields = ['cell_R3_C4'];
+      const dom = await readyPageRaw(structure);
+      const win = dom.window;
+      win.__app.enterNormalMode();
+      assertFalse(win.__app.hasUnsavedNormalInput(), '全て空欄の直後はfalseのはず');
+      win.document.getElementById('cell_R3_C3').value = 'テスト';
+      assertTrue(win.__app.hasUnsavedNormalInput());
+    });
+
+    await testAsync('1次入力欄が空のままなら、確認なしで2次以降入力へ移動できる（confirmが常にfalseでも成功する）', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      structure.reviewFields = ['cell_R3_C4'];
+      const dom = await readyPageRaw(structure);
+      const win = dom.window;
+      win.__app.enterNormalMode();
+      win.confirm = () => false; // 常に拒否する設定でも、そもそも確認が要らないので成功するはず
+      win.document.getElementById('btn-mode-review').click();
+      assertEqual(win.document.getElementById('review-root').style.display, '');
+    });
+
+    await testAsync('1次入力欄に値がある状態で2次以降入力へ移動しようとすると確認が入り、キャンセルすると画面遷移しない', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      structure.reviewFields = ['cell_R3_C4'];
+      const dom = await readyPageRaw(structure);
+      const win = dom.window;
+      win.__app.enterNormalMode();
+      win.document.getElementById('cell_R3_C3').value = '入力途中';
+      let confirmCalled = false;
+      win.confirm = () => { confirmCalled = true; return false; };
+      win.document.getElementById('btn-mode-review').click();
+      assertTrue(confirmCalled, '空でないのでconfirmが呼ばれるはず');
+      assertEqual(win.document.getElementById('normal-mode-root').style.display, '', 'キャンセルしたので1次入力画面のままのはず');
+      assertEqual(win.document.getElementById('cell_R3_C3').value, '入力途中', '入力内容も消えていないはず');
+    });
+
+    await testAsync('1次入力欄に値がある状態で確認にOKすると、2次以降入力へ移動しグリッドは空になる', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      structure.reviewFields = ['cell_R3_C4'];
+      const dom = await readyPageRaw(structure);
+      const win = dom.window;
+      win.__app.enterNormalMode();
+      win.document.getElementById('cell_R3_C3').value = '入力途中';
+      win.confirm = () => true;
+      win.document.getElementById('btn-mode-review').click();
+      assertEqual(win.document.getElementById('review-root').style.display, '');
+      assertEqual(win.document.getElementById('grid-root').innerHTML, '');
     });
   });
 

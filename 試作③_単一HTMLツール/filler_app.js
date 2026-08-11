@@ -613,7 +613,23 @@ function enterNormalMode() {
   showScreen('normal');
 }
 
+// #grid-root（1次入力画面）に、空欄でない入力欄が1つでもあるかどうか。
+// enterReviewMode()が無条件でグリッドを空にする前の確認に使う。normalModeRenderedが
+// falseの場合（一度も1次入力に入っていない、またはSTEP1のみを経由している）は
+// grid-root自体に入力欄が無いため、自然にfalseを返す。
+function hasUnsavedNormalInput() {
+  const inputs = $('#grid-root').querySelectorAll('input, textarea, select');
+  return [...inputs].some(elx => String(elx.value || '').trim() !== '');
+}
+
+// #grid-root（同じcellId体系を使うレビュー画面）へ移る前に、1次入力欄が空でなければ
+// 「消えてよいか」を確認する。STEP1が前面に出たことで、1次入力の途中にうっかり
+// 2次以降入力へ切り替え、内容を無警告で失うリスクが高まったための対応
+// （実機確認フィードバック）。キャンセルした場合は画面遷移そのものを取りやめる。
 function enterReviewMode() {
+  if (hasUnsavedNormalInput() && !window.confirm('1次入力の内容が消えます。2次以降入力へ移動してよろしいですか？')) {
+    return;
+  }
   $('#grid-root').innerHTML = '';
   normalModeRendered = false;
   showScreen('list');
@@ -804,7 +820,7 @@ if (typeof window !== 'undefined') {
     get REVIEW() { return REVIEW; },
     upsertRecords, extractFieldValues, mergedDataForExport, isRecordComplete,
     filteredRecords, renderReviewBody, bulkPrintFiltered, cleanupBulkPrint, bulkExportFiltered,
-    buildExportFileNameForRecord, renderReviewList, enterReviewMode, enterNormalMode, backToModeSelect,
+    buildExportFileNameForRecord, renderReviewList, enterReviewMode, enterNormalMode, backToModeSelect, hasUnsavedNormalInput,
     openReviewDetail, backToReviewListFromDetail, saveDetailAndBackToList, handleReviewFileInput,
     pickReviewDirectory, scanReviewDirectory,
     saveBlob, pickExportDirectory,
