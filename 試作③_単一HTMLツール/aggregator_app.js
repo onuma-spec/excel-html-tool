@@ -205,16 +205,48 @@ function labelForCellId(id) {
 // ---------------------------------------------------------------------------
 const AGG = { records: [], dirHandle: null };
 
+// 同一事業の識別キー。viewer_app.jsのpersistKeyと同じ考え方で、STRUCTURE.fileNameFields
+// （ビルダーSTEP4で「ファイル名に含める項目」として選ばれた、事業名等の識別用セル）の値を
+// つないだ文字列を使う。部署が内容を修正して再度書き出すと、ファイル名の日付部分が変わり
+// 別ファイルになる（filler_app.jsのbuildExportFileNameを参照）。ファイル名だけで重複判定すると、
+// この「修正後の再提出」を別事業として二重登録してしまうため、fileNameFieldsの値で
+// 「同じ事業」を認識し、既存レコードの更新として扱う。fileNameFields未設定／全欄空欄の場合は
+// nullを返し、呼び出し側は従来通りファイル名一致での重複スキップにフォールバックする。
+function businessKeyForRecord(data) {
+  const ids = STRUCTURE.fileNameFields || [];
+  if (ids.length === 0) return null;
+  const raw = scratchExtractForRecord(data, ids);
+  const parts = ids.map(id => String(raw[id] || '').trim()).filter(v => v !== '');
+  return parts.length > 0 ? parts.join('｜') : null;
+}
+
+// 戻り値：{added, updated}。addedは新規追加件数、updatedはfileNameFieldsのキーが一致し
+// 既存レコードを上書きした件数（＝同じ事業の再提出を検出できた件数）。
 function upsertRecords(newRecords) {
-  const existingNames = new Set(AGG.records.map(r => r.fileName));
+  const existingByKey = new Map(); // businessKey -> AGG.records内のindex
+  const existingFileNames = new Set();
+  AGG.records.forEach((rec, idx) => {
+    existingFileNames.add(rec.fileName);
+    const key = businessKeyForRecord(rec.data);
+    if (key) existingByKey.set(key, idx);
+  });
+
   let added = 0;
+  let updated = 0;
   newRecords.forEach((r) => {
-    if (existingNames.has(r.fileName)) return;
+    const key = businessKeyForRecord(r.data);
+    if (key && existingByKey.has(key)) {
+      AGG.records[existingByKey.get(key)] = { fileName: r.fileName, data: r.data };
+      updated++;
+      return;
+    }
+    if (!key && existingFileNames.has(r.fileName)) return; // キーが使えない場合のみファイル名一致でスキップ
     AGG.records.push({ fileName: r.fileName, data: r.data });
-    existingNames.add(r.fileName);
+    if (key) existingByKey.set(key, AGG.records.length - 1);
+    existingFileNames.add(r.fileName);
     added++;
   });
-  return added;
+  return { added, updated };
 }
 
 function removeRecord(fileName) {
@@ -258,10 +290,11 @@ async function handleFileInput(fileList) {
       newRecords.push({ fileName: file.name, data: JSON.parse(text) });
     } catch (e) { /* 壊れたJSONはスキップ */ }
   }
-  const added = upsertRecords(newRecords);
+  const { added, updated } = upsertRecords(newRecords);
   renderLoadedList();
   renderConfigDescriptionForm();
-  setStatus(`${added}件読み込みました（合計${AGG.records.length}件）。`);
+  const updatedNote = updated > 0 ? `（うち${updated}件は既存事業の更新）` : '';
+  setStatus(`${added}件読み込みました${updatedNote}（合計${AGG.records.length}件）。`);
 }
 
 async function pickLoadDirectory() {
@@ -286,10 +319,11 @@ async function scanLoadDirectory() {
       newRecords.push({ fileName: entry.name, data: JSON.parse(text) });
     } catch (e) { /* 壊れたJSONはスキップ */ }
   }
-  const added = upsertRecords(newRecords);
+  const { added, updated } = upsertRecords(newRecords);
   renderLoadedList();
   renderConfigDescriptionForm();
-  setStatus(`フォルダを読み直しました（新規${added}件、合計${AGG.records.length}件）。`);
+  const updatedNote = updated > 0 ? `、更新${updated}件` : '';
+  setStatus(`フォルダを読み直しました（新規${added}件${updatedNote}、合計${AGG.records.length}件）。`);
 }
 
 // ---------------------------------------------------------------------------
@@ -653,7 +687,7 @@ if (typeof window !== 'undefined') {
     get AGG() { return AGG; },
     get CONFIG() { return CONFIG; },
     get CURRENT_STATE() { return CURRENT_STATE; },
-    handleFileInput, upsertRecords, removeRecord, renderLoadedList,
+    handleFileInput, upsertRecords, removeRecord, renderLoadedList, businessKeyForRecord,
     pickLoadDirectory, scanLoadDirectory,
     candidateSingles, numericCandidateSingles, allGroupCandidates, groupCandidatesNumeric, numericAggregateCandidates,
     displayCandidatePool, searchCandidatePool, aggregateKey, labelForCellId, labelForTarget, buildStateFromStructure,

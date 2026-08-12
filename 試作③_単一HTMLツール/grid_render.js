@@ -454,6 +454,64 @@ function setDomValue(info, v) {
 // 貼り付け対応（簡易版：タブ区切りテキストを、選択中セルを起点に貼り付ける）
 // ---------------------------------------------------------------------------
 
+// Excelのクリップボード形式（TSV）は、セル内に改行・タブ・ダブルクォート自体を含む場合、
+// CSVと同じ規則でセル全体をダブルクォートで囲み、内部のダブルクォートは2つに重ねる
+// （例：縦結合の複数行ラベル「R6年度\n(2024年度)」はコピー時に`"R6年度\n(2024年度)"`と
+// 引用符付きで表現される）。素朴にsplit('\n')/split('\t')するだけだと、この引用符内の
+// 改行を行の区切りと誤認し、そこから後ろの行が全て1行ずつずれて貼り付けられる不具合が
+// 実機確認（複数行ラベルを含む様式）で発覚したため、RFC4180準拠のクォート規則を
+// 踏まえて1文字ずつパースする。
+function parseClipboardGrid(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  const s = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (s[i + 1] === '"') { field += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"' && field === '') {
+      inQuotes = true;
+    } else if (ch === '\t') {
+      row.push(field); field = '';
+    } else if (ch === '\n') {
+      row.push(field); field = '';
+      rows.push(row); row = [];
+    } else {
+      field += ch;
+    }
+  }
+  row.push(field);
+  rows.push(row);
+  // 貼り付けテキスト末尾の改行に由来する空行（1列だけの空文字列の行）は除く
+  if (rows.length > 0 && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === '') {
+    rows.pop();
+  }
+  return rows;
+}
+
+// (startRow, startCol)を起点に、パース済みのタブ区切りグリッドを流し込む共通処理。
+// 対応する入力欄が無い座標（見出し・自動計算・結合セルの2マス目等）は
+// document.getElementByIdがnullを返すため、何もせず静かにスキップされる
+// （Excelの見出し行を含む範囲をそのまま貼り付けても壊れない、という前提の要）。
+function applyPastedGrid(state, text, startRow, startCol) {
+  const rows = parseClipboardGrid(text);
+  rows.forEach((cols, ri) => {
+    cols.forEach((val, ci) => {
+      const target = document.getElementById(`cell_R${startRow + ri}_C${startCol + ci}`);
+      if (target) target.value = val;
+    });
+  });
+  recalcAllFormulas(state);
+  return rows.length;
+}
+
 function setupPasteHandler(state, statusEl) {
   document.addEventListener('paste', (ev) => {
     const active = document.activeElement;
@@ -463,25 +521,28 @@ function setupPasteHandler(state, statusEl) {
     ev.preventDefault();
     const m = active.id.match(/^cell_R(\d+)_C(\d+)$/);
     if (!m) return;
-    const startRow = parseInt(m[1], 10), startCol = parseInt(m[2], 10);
-    const rows = text.replace(/\r/g, '').split('\n').filter((_, i, arr) => !(i === arr.length - 1 && arr[i] === ''));
-    rows.forEach((line, ri) => {
-      const cols = line.split('\t');
-      cols.forEach((val, ci) => {
-        const target = document.getElementById(`cell_R${startRow + ri}_C${startCol + ci}`);
-        if (target) target.value = val;
-      });
-    });
-    recalcAllFormulas(state);
-    if (statusEl) statusEl.textContent = `貼り付けました（${rows.length}行）。空欄でないセルの一部が対応する入力欄に反映されていない場合があります。結果をご確認ください。`;
+    const rowCount = applyPastedGrid(state, text, parseInt(m[1], 10), parseInt(m[2], 10));
+    if (statusEl) statusEl.textContent = `貼り付けました（${rowCount}行）。空欄でないセルの一部が対応する入力欄に反映されていない場合があります。結果をご確認ください。`;
   });
   document.addEventListener('input', (ev) => {
     if (ev.target && ev.target.id && ev.target.id.startsWith('cell_')) recalcAllFormulas(state);
   });
 }
 
+// 「まとめて貼り付け」ボタン用：クリック中のセルに依存せず、クリップボードの内容を
+// グリッド左上（行1・列1＝Excelの実際の左上セルA1と対応）を基準に反映する。
+// setupPasteHandler（クリックしたセルを起点にする方式）と違い、様式の左上が見出し等
+// クリックできないセルであっても、Excel全体（見出し行含む）をそのまま貼り付けられる。
+// navigator.clipboard.readTextはセキュアコンテキスト必須（Chromiumはfile://も対象に含む）。
+// 呼び出し側（filler_app.js）でAPIの有無を確認し、無ければボタン自体を出さない設計とする。
+async function pasteFromClipboardAtOrigin(state) {
+  const text = await navigator.clipboard.readText();
+  if (!text) throw new Error('clipboard-empty');
+  return applyPastedGrid(state, text, 1, 1);
+}
+
 return {
   buildInputControl, renderGrid, buildPrintTable, collectData, loadDataIntoGrid, recalcAllFormulas,
-  setupPasteHandler,
+  setupPasteHandler, applyPastedGrid, pasteFromClipboardAtOrigin, parseClipboardGrid,
 };
 });

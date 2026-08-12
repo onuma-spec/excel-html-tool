@@ -125,6 +125,12 @@ function newFillerPage(structure) {
       <div id="normal-load-bar">
         <input type="file" id="file-load-json">
       </div>
+      <div id="bulk-paste-bar" style="display:none">
+        <button id="btn-bulk-paste">paste</button>
+      </div>
+      <div>
+        <button id="btn-clear-normal">clear</button>
+      </div>
       <p id="grid-hint"></p>
       <p id="field-legend" style="display:none"></p>
       <div id="grid-root"></div>
@@ -606,6 +612,180 @@ function buildSampleData(dom, values) {
       ev.clipboardData = { getData: () => '入力値\t続き' };
       win.document.dispatchEvent(ev);
       assertEqual(startCell.value, '入力値');
+    });
+  });
+
+  await runSuiteAsync('filler_app: まとめて貼り付けボタン（クリップボード）', async () => {
+    // navigator.clipboard.readTextはinit()（DOMContentLoadedで発火）が機能検出に使うため、
+    // readyPage()（内部でwaitForを挟む）より前、newFillerPage()直後の同期区間で仕込む必要がある。
+    async function readyPageWithClipboard(structure, clipboardImpl) {
+      const dom = newFillerPage(structure);
+      if (clipboardImpl !== undefined) dom.window.navigator.clipboard = clipboardImpl;
+      await waitFor(() => dom.window.__app && dom.window.__app.STATE);
+      dom.window.__app.enterNormalMode();
+      dom.window.confirm = () => true;
+      return dom;
+    }
+
+    await testAsync('navigator.clipboard.readText非対応（jsdom既定）では、#bulk-paste-barは表示されない', async () => {
+      const structure = buildSingleLabelRowStructure();
+      const dom = await readyPageWithClipboard(structure);
+      assertEqual(dom.window.document.getElementById('bulk-paste-bar').style.display, 'none');
+    });
+
+    await testAsync('navigator.clipboard.readText対応環境では、#bulk-paste-barが表示される', async () => {
+      const structure = buildSingleLabelRowStructure();
+      const dom = await readyPageWithClipboard(structure, { readText: async () => '' });
+      assertEqual(dom.window.document.getElementById('bulk-paste-bar').style.display, '');
+    });
+
+    await testAsync('ボタンを押すとクリップボードの内容がグリッド左上(1,1)基準で反映される（見出しセルは無視・入力欄だけ埋まる）', async () => {
+      const structure = buildSingleLabelRowStructure(); // (1,1)=「部署名」ラベル（入力欄なし）、(1,2)=入力欄
+      const dom = await readyPageWithClipboard(structure, { readText: async () => '無視される\t部署Aの値' });
+      const win = dom.window;
+      win.document.getElementById('btn-bulk-paste').click();
+      await waitFor(() => win.document.getElementById('cell_R1_C2').value === '部署Aの値');
+      assertEqual(win.document.getElementById('status').textContent.includes('クリップボードから貼り付けました'), true);
+    });
+
+    await testAsync('クリップボードの読み取りに失敗した場合、フォールバック手段を案内するメッセージが出る', async () => {
+      const structure = buildSingleLabelRowStructure();
+      const dom = await readyPageWithClipboard(structure, { readText: async () => { throw new Error('denied'); } });
+      const win = dom.window;
+      win.document.getElementById('btn-bulk-paste').click();
+      await waitFor(() => win.document.getElementById('status').textContent.includes('クリップボードの読み取りに失敗'));
+      assertTrue(win.document.getElementById('status').textContent.includes('Ctrl+V'), 'クリック＆直接貼り付けという既存の代替手段を案内するはず');
+    });
+  });
+
+  await runSuiteAsync('filler_app: 自動下書き保存（localStorage）', async () => {
+    async function newReadyFillerPage(structure) {
+      const dom = newFillerPage(structure);
+      await waitFor(() => dom.window.__app && dom.window.__app.STATE);
+      return dom;
+    }
+
+    // reviewFieldsを1つ持たせ、init()がSTEP1（選択画面）で止まり自動でenterNormalMode()を
+    // 呼ばないようにする。reviewFields未指定の様式（1段階しか無い様式）はinit()自身が
+    // 即座にenterNormalMode()を呼んでしまうため、そのままではテスト側がenterNormalMode()を
+    // 呼ぶ時点で既にnormalModeRendered=trueとなり、offerDraftRestoreIfAny()（初回描画時のみ
+    // 実行）を検証できない。
+    function buildDraftTestStructure() {
+      const structure = buildSingleLabelRowStructure();
+      structure.reviewFields = ['cell_R1_C2'];
+      return structure;
+    }
+
+    await testAsync('下書きが無い場合、1次入力に入っても復元確認ダイアログは出ない', async () => {
+      const structure = buildDraftTestStructure();
+      const dom = await newReadyFillerPage(structure);
+      const win = dom.window;
+      let confirmCalled = false;
+      win.confirm = () => { confirmCalled = true; return true; };
+      win.__app.enterNormalMode();
+      assertFalse(confirmCalled);
+    });
+
+    await testAsync('下書きがあり復元を選ぶと、グリッドに反映される', async () => {
+      const structure = buildDraftTestStructure(); // (1,2)が入力欄
+      const dom = await newReadyFillerPage(structure);
+      const win = dom.window;
+      win.localStorage.setItem(win.__app.DRAFT_STORAGE_KEY, JSON.stringify({ savedAt: new Date().toISOString(), data: { シート: { 部署名: '広報課' } } }));
+      win.confirm = () => true;
+      win.__app.enterNormalMode();
+      assertEqual(win.document.getElementById('cell_R1_C2').value, '広報課');
+    });
+
+    await testAsync('下書きがあり復元を断ると、下書きは削除される（次回また聞かれないように）', async () => {
+      const structure = buildDraftTestStructure();
+      const dom = await newReadyFillerPage(structure);
+      const win = dom.window;
+      win.localStorage.setItem(win.__app.DRAFT_STORAGE_KEY, JSON.stringify({ savedAt: new Date().toISOString(), data: { シート: { 部署名: '広報課' } } }));
+      win.confirm = () => false;
+      win.__app.enterNormalMode();
+      assertEqual(win.localStorage.getItem(win.__app.DRAFT_STORAGE_KEY), null);
+      assertEqual(win.document.getElementById('cell_R1_C2').value, '');
+    });
+
+    await testAsync('1次入力画面での入力は、一定時間後に自動でlocalStorageへ下書き保存される', async () => {
+      const structure = buildSingleLabelRowStructure();
+      const dom = await newReadyFillerPage(structure);
+      const win = dom.window;
+      win.confirm = () => true;
+      win.__app.enterNormalMode();
+      const cell = win.document.getElementById('cell_R1_C2');
+      cell.value = '入力中の値';
+      cell.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await waitFor(() => win.localStorage.getItem(win.__app.DRAFT_STORAGE_KEY) !== null, 2500);
+      const saved = JSON.parse(win.localStorage.getItem(win.__app.DRAFT_STORAGE_KEY));
+      assertEqual(saved.data.シート.部署名, '入力中の値');
+    });
+
+    await testAsync('1次入力画面から離れている間の入力は自動下書き保存の対象にならない（#grid-rootが保持されていても）', async () => {
+      const structure = buildSingleLabelRowStructure();
+      const dom = await newReadyFillerPage(structure);
+      const win = dom.window;
+      win.confirm = () => true;
+      win.__app.enterNormalMode();
+      win.__app.backToModeSelect(); // STEP1へ戻る。#grid-root自体は保持される（既存仕様）
+      const cell = win.document.getElementById('cell_R1_C2');
+      cell.value = 'STEP1に戻った後の変更';
+      cell.dispatchEvent(new win.Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 1300));
+      assertEqual(win.localStorage.getItem(win.__app.DRAFT_STORAGE_KEY), null, '1次入力画面にいない間の入力は下書き保存されないはず');
+    });
+
+    await testAsync('書き出しに成功すると下書きが自動的に削除される', async () => {
+      const structure = buildSingleLabelRowStructure();
+      const dom = await newReadyFillerPage(structure);
+      const win = dom.window;
+      win.confirm = () => true;
+      win.__app.enterNormalMode();
+      win.__app.saveDraftNow();
+      assertTrue(win.localStorage.getItem(win.__app.DRAFT_STORAGE_KEY) !== null, '事前に下書きを作っておく');
+      win.URL.createObjectURL = () => 'blob:mock';
+      win.HTMLAnchorElement.prototype.click = function () {};
+      win.document.getElementById('btn-export').click();
+      assertTrue(win.document.getElementById('status').textContent.includes('書き出しました'));
+      assertEqual(win.localStorage.getItem(win.__app.DRAFT_STORAGE_KEY), null);
+    });
+  });
+
+  await runSuiteAsync('filler_app: 新規入力を始める（クリア）', async () => {
+    await testAsync('入力欄が空の状態でクリアを押しても、確認ダイアログは出ずクリアできる', async () => {
+      const structure = buildSingleLabelRowStructure();
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      let confirmCalled = false;
+      win.confirm = () => { confirmCalled = true; return true; };
+      win.document.getElementById('btn-clear-normal').click();
+      assertFalse(confirmCalled, '消える内容が無いので確認ダイアログは不要なはず');
+      assertTrue(win.document.getElementById('status').textContent.includes('クリアしました'));
+    });
+
+    await testAsync('入力済みの内容がある状態でクリアを押すと確認ダイアログが出て、キャンセルすると何も消えない', async () => {
+      const structure = buildSingleLabelRowStructure();
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      win.document.getElementById('cell_R1_C2').value = '広報課';
+      let confirmCalled = false;
+      win.confirm = () => { confirmCalled = true; return false; };
+      win.document.getElementById('btn-clear-normal').click();
+      assertTrue(confirmCalled);
+      assertEqual(win.document.getElementById('cell_R1_C2').value, '広報課', 'キャンセルしたので値は残るはず');
+    });
+
+    await testAsync('入力済みの内容がある状態でクリアを確定すると、全入力欄が空になり下書きも消える', async () => {
+      const structure = buildSingleLabelRowStructure();
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      win.document.getElementById('cell_R1_C2').value = '広報課';
+      win.__app.saveDraftNow();
+      assertTrue(win.localStorage.getItem(win.__app.DRAFT_STORAGE_KEY) !== null, '事前に下書きを作っておく');
+      win.confirm = () => true;
+      win.document.getElementById('btn-clear-normal').click();
+      assertEqual(win.document.getElementById('cell_R1_C2').value, '');
+      assertEqual(win.localStorage.getItem(win.__app.DRAFT_STORAGE_KEY), null, 'クリア後に「復元しますか」と聞かれても困るので下書きも消えるはず');
     });
   });
 

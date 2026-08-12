@@ -300,6 +300,61 @@ runSuite('grid_render: 貼り付け（タブ区切りテキスト）', () => {
     assertEqual(document.getElementById(CoreLogic.cellId(state.grid.get('2,1'))).value, 'c');
     assertEqual(document.getElementById(CoreLogic.cellId(state.grid.get('2,2'))).value, 'd');
   });
+
+  test('applyPastedGridは、対応する入力欄が無い座標（見出しセル等）を静かにスキップする（「まとめて貼り付け」ボタンの土台）', () => {
+    // (1,1)は見出しラベル（入力欄なし）、(1,2)が唯一の入力欄という様式を模す。
+    const ws = mockSheet({
+      maxRow: 1, maxCol: 2,
+      cells: [{ row: 1, col: 1, v: '部署名' }], // (1,1)のみ明示セル＝見出し。(1,2)はcells未指定=入力欄
+    });
+    const state = stateFromWs(ws, [{ title: 'シート', row0: 1, row1: 1 }]);
+    const root = freshRoot();
+    GridRender.renderGrid(root, state, { showGear: false });
+
+    assertFalse(!!document.getElementById('cell_R1_C1'), '見出しセルには入力欄(id=cell_...)が無い前提');
+    const rowCount = GridRender.applyPastedGrid(state, '無視される\t部署Aの値', 1, 1);
+    assertEqual(rowCount, 1);
+    assertEqual(document.getElementById('cell_R1_C2').value, '部署Aの値', '対応する入力欄には正しく反映される');
+  });
+
+  test('parseClipboardGridは、セル内改行を含む引用符付きフィールドを1つの値として扱う（行がずれない）', () => {
+    // 実機確認で発覚：縦結合の複数行ラベル「R6年度\n(2024年度)」を含む範囲をExcelからコピーすると、
+    // クリップボードのTSVは`"R6年度\n(2024年度)"\t...`のように引用符で囲まれる（CSVと同じ規則）。
+    // 素朴にsplit('\n')するだけだと、この引用符内の改行を行区切りと誤認し、以降の行が
+    // 1行ずつずれて貼り付けられてしまっていた（合計欄の値が本来と違う行に紛れ込む形で発覚）。
+    const text = '"R6年度\n(2024年度)"\t街路灯LED化工事\t15000\n\tその他\t0\n\t合計\t15000\n';
+    const rows = GridRender.parseClipboardGrid(text);
+    assertEqual(rows.length, 3, '引用符内の改行で余分な行が増えないはず');
+    assertEqual(rows[0][0], 'R6年度\n(2024年度)', '引用符内の改行はセルの値としてそのまま保持されるはず');
+    assertEqual(rows[0][1], '街路灯LED化工事');
+    assertEqual(rows[0][2], '15000');
+    assertEqual(rows[1][1], 'その他');
+    assertEqual(rows[2][1], '合計');
+    assertEqual(rows[2][2], '15000');
+  });
+
+  test('parseClipboardGridは、引用符内の連続ダブルクォート（""）を1つのダブルクォートとして復元する', () => {
+    const text = 'a\t"say ""hi"""\tc';
+    const rows = GridRender.parseClipboardGrid(text);
+    assertEqual(rows.length, 1);
+    assertEqual(rows[0][1], 'say "hi"');
+  });
+
+  test('applyPastedGridは、セル内改行を含む複数行の貼り付けでも行がずれず、各行が正しい行へ反映される（回帰）', () => {
+    const ws = mockSheet({ maxRow: 3, maxCol: 3, cells: [] }); // 全セル入力欄
+    const state = stateFromWs(ws, [{ title: 'シート', row0: 1, row1: 3 }]);
+    const root = freshRoot();
+    GridRender.renderGrid(root, state, { showGear: false });
+
+    const text = '"R6年度\n(2024年度)"\t街路灯LED化工事\t15000\n\tその他\t0\n\t合計\t15000\n';
+    const rowCount = GridRender.applyPastedGrid(state, text, 1, 1);
+    assertEqual(rowCount, 3, '引用符内の改行を1行分として数えるはず（3行＝maxRowと一致）');
+    assertEqual(document.getElementById('cell_R1_C1').value, 'R6年度\n(2024年度)');
+    assertEqual(document.getElementById('cell_R1_C2').value, '街路灯LED化工事');
+    assertEqual(document.getElementById('cell_R2_C2').value, 'その他', '2行目（本来の2行目）が3行目にずれてはいけない');
+    assertEqual(document.getElementById('cell_R3_C2').value, '合計', '3行目（合計）が4行目（存在しない/無関係なセル）に紛れ込んではいけない');
+    assertEqual(document.getElementById('cell_R3_C3').value, '15000');
+  });
 });
 
 runSuite('grid_render: buildPrintTable（印刷専用スナップショット）', () => {

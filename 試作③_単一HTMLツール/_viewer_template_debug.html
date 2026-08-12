@@ -1314,6 +1314,64 @@ function setDomValue(info, v) {
 // 貼り付け対応（簡易版：タブ区切りテキストを、選択中セルを起点に貼り付ける）
 // ---------------------------------------------------------------------------
 
+// Excelのクリップボード形式（TSV）は、セル内に改行・タブ・ダブルクォート自体を含む場合、
+// CSVと同じ規則でセル全体をダブルクォートで囲み、内部のダブルクォートは2つに重ねる
+// （例：縦結合の複数行ラベル「R6年度\n(2024年度)」はコピー時に`"R6年度\n(2024年度)"`と
+// 引用符付きで表現される）。素朴にsplit('\n')/split('\t')するだけだと、この引用符内の
+// 改行を行の区切りと誤認し、そこから後ろの行が全て1行ずつずれて貼り付けられる不具合が
+// 実機確認（複数行ラベルを含む様式）で発覚したため、RFC4180準拠のクォート規則を
+// 踏まえて1文字ずつパースする。
+function parseClipboardGrid(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  const s = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (s[i + 1] === '"') { field += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"' && field === '') {
+      inQuotes = true;
+    } else if (ch === '\t') {
+      row.push(field); field = '';
+    } else if (ch === '\n') {
+      row.push(field); field = '';
+      rows.push(row); row = [];
+    } else {
+      field += ch;
+    }
+  }
+  row.push(field);
+  rows.push(row);
+  // 貼り付けテキスト末尾の改行に由来する空行（1列だけの空文字列の行）は除く
+  if (rows.length > 0 && rows[rows.length - 1].length === 1 && rows[rows.length - 1][0] === '') {
+    rows.pop();
+  }
+  return rows;
+}
+
+// (startRow, startCol)を起点に、パース済みのタブ区切りグリッドを流し込む共通処理。
+// 対応する入力欄が無い座標（見出し・自動計算・結合セルの2マス目等）は
+// document.getElementByIdがnullを返すため、何もせず静かにスキップされる
+// （Excelの見出し行を含む範囲をそのまま貼り付けても壊れない、という前提の要）。
+function applyPastedGrid(state, text, startRow, startCol) {
+  const rows = parseClipboardGrid(text);
+  rows.forEach((cols, ri) => {
+    cols.forEach((val, ci) => {
+      const target = document.getElementById(`cell_R${startRow + ri}_C${startCol + ci}`);
+      if (target) target.value = val;
+    });
+  });
+  recalcAllFormulas(state);
+  return rows.length;
+}
+
 function setupPasteHandler(state, statusEl) {
   document.addEventListener('paste', (ev) => {
     const active = document.activeElement;
@@ -1323,26 +1381,29 @@ function setupPasteHandler(state, statusEl) {
     ev.preventDefault();
     const m = active.id.match(/^cell_R(\d+)_C(\d+)$/);
     if (!m) return;
-    const startRow = parseInt(m[1], 10), startCol = parseInt(m[2], 10);
-    const rows = text.replace(/\r/g, '').split('\n').filter((_, i, arr) => !(i === arr.length - 1 && arr[i] === ''));
-    rows.forEach((line, ri) => {
-      const cols = line.split('\t');
-      cols.forEach((val, ci) => {
-        const target = document.getElementById(`cell_R${startRow + ri}_C${startCol + ci}`);
-        if (target) target.value = val;
-      });
-    });
-    recalcAllFormulas(state);
-    if (statusEl) statusEl.textContent = `貼り付けました（${rows.length}行）。空欄でないセルの一部が対応する入力欄に反映されていない場合があります。結果をご確認ください。`;
+    const rowCount = applyPastedGrid(state, text, parseInt(m[1], 10), parseInt(m[2], 10));
+    if (statusEl) statusEl.textContent = `貼り付けました（${rowCount}行）。空欄でないセルの一部が対応する入力欄に反映されていない場合があります。結果をご確認ください。`;
   });
   document.addEventListener('input', (ev) => {
     if (ev.target && ev.target.id && ev.target.id.startsWith('cell_')) recalcAllFormulas(state);
   });
 }
 
+// 「まとめて貼り付け」ボタン用：クリック中のセルに依存せず、クリップボードの内容を
+// グリッド左上（行1・列1＝Excelの実際の左上セルA1と対応）を基準に反映する。
+// setupPasteHandler（クリックしたセルを起点にする方式）と違い、様式の左上が見出し等
+// クリックできないセルであっても、Excel全体（見出し行含む）をそのまま貼り付けられる。
+// navigator.clipboard.readTextはセキュアコンテキスト必須（Chromiumはfile://も対象に含む）。
+// 呼び出し側（filler_app.js）でAPIの有無を確認し、無ければボタン自体を出さない設計とする。
+async function pasteFromClipboardAtOrigin(state) {
+  const text = await navigator.clipboard.readText();
+  if (!text) throw new Error('clipboard-empty');
+  return applyPastedGrid(state, text, 1, 1);
+}
+
 return {
   buildInputControl, renderGrid, buildPrintTable, collectData, loadDataIntoGrid, recalcAllFormulas,
-  setupPasteHandler,
+  setupPasteHandler, applyPastedGrid, pasteFromClipboardAtOrigin, parseClipboardGrid,
 };
 });
 
@@ -1493,21 +1554,42 @@ function computeFieldDisplayValue(rawValues, ids) {
   return any ? sum.toLocaleString('ja-JP') : '';
 }
 
+// ☑・メモの永続化キー。STRUCTURE.fileNameFields（ビルダーSTEP4で「ファイル名に含める項目」
+// として選ばれた、事業名等の識別用セル＝filler_app.jsの書き出しファイル名と同じ元）の値を
+// つないだ文字列を使う。配列インデックスと違い、事業の並び順や件数が次回の再集約で変わっても
+// 「同じ事業」であれば同じキーになるため、☑・メモが別の事業に付け替わる事故を防げる。
+// fileNameFieldsが未設定／該当欄が全て空欄の事業のみ、従来通りインデックスにフォールバックする。
+function computePersistKey(rawValues, idx) {
+  const ids = STRUCTURE.fileNameFields || [];
+  const parts = ids.map(id => String(rawValues[id] || '').trim()).filter(v => v !== '');
+  if (parts.length > 0) return parts.join('｜');
+  return 'idx:' + idx;
+}
+
 function initRecords() {
   const allCellIds = Array.from(new Set([
     ...allDisplayCellIds(),
     ...searchIds(),
     ...aggregateIds(),
+    ...(STRUCTURE.fileNameFields || []),
   ]));
+  const seenKeyCounts = new Map();
   V.records = (RECORDS || []).map((data, idx) => {
     const rawValues = scratchExtract(data, allCellIds);
     const displayValues = {};
     DISPLAY_FIELDS.forEach((f) => { displayValues[f.key] = computeFieldDisplayValue(rawValues, f.ids); });
     const searchText = searchIds().map(id => rawValues[id] || '').join(' ').toLowerCase();
+    // 同一キーが複数事業に発生した場合（識別用の項目が同じ値になる稀なケース）に、
+    // ☑・メモが別事業と衝突しないよう連番を付けて一意化する。
+    let persistKey = computePersistKey(rawValues, idx);
+    const seenCount = seenKeyCounts.get(persistKey) || 0;
+    if (seenCount > 0) persistKey = persistKey + '#' + (seenCount + 1);
+    seenKeyCounts.set(persistKey, seenCount + 1);
     // rawValues（実セルidキー）はrenderSummaryの集計対象（PUBLIC_CONFIG.aggregateFields[].ids、
     // 実セルidの配列）を合計する際に使う。displayValues（表示項目のdfキー）とはキー体系が
-    // 異なるため両方を保持する。
-    return { id: idx, data, rawValues, displayValues, searchText };
+    // 異なるため両方を保持する。idは画面内ナビゲーション（詳細画面の前へ／次へ、URLの
+    // #detail-N)専用の一時的な連番、persistKeyがlocalStorage保存用の恒久キー。
+    return { id: idx, persistKey, data, rawValues, displayValues, searchText };
   });
 }
 
@@ -1534,7 +1616,7 @@ function uniqueColumnValues(id) {
 }
 
 function matchesFilters(record) {
-  if (V.onlyChecked && !V.checked.has(record.id)) return false;
+  if (V.onlyChecked && !V.checked.has(record.persistKey)) return false;
   if (V.keyword && record.searchText.indexOf(V.keyword.toLowerCase()) === -1) return false;
   for (const id of currentDisplayIds()) {
     const allowed = V.colFilters.get(id);
@@ -1640,14 +1722,14 @@ function buildColFilterDetails(id) {
 
 function buildMemoCell(record) {
   const details = el('details', { class: 'memo-popover' });
-  const summary = el('summary', { text: V.memos.get(record.id) ? '📝あり' : '📝', title: 'メモを編集（この端末にのみ保存）' });
+  const summary = el('summary', { text: V.memos.get(record.persistKey) ? '📝あり' : '📝', title: 'メモを編集（この端末にのみ保存）' });
   details.appendChild(summary);
   const panel = el('div', { class: 'memo-panel' });
   panel.style.display = 'none';
   const textarea = el('textarea', {});
-  textarea.value = V.memos.get(record.id) || '';
+  textarea.value = V.memos.get(record.persistKey) || '';
   textarea.addEventListener('input', () => {
-    setMemo(record.id, textarea.value);
+    setMemo(record.persistKey, textarea.value);
     summary.textContent = textarea.value ? '📝あり' : '📝';
   });
   panel.appendChild(textarea);
@@ -1724,14 +1806,14 @@ function renderList() {
 
     const chkTd = el('td', { class: 'viewer-chk-cell' });
     const chk = el('input', { type: 'checkbox' });
-    if (V.checked.has(record.id)) chk.setAttribute('checked', 'checked');
-    chk.addEventListener('change', () => toggleChecked(record.id));
+    if (V.checked.has(record.persistKey)) chk.setAttribute('checked', 'checked');
+    chk.addEventListener('change', () => toggleChecked(record.persistKey));
     chkTd.appendChild(chk);
     chkTd.appendChild(buildMemoCell(record));
     tr.appendChild(chkTd);
 
     if (V.showMemoColumn) {
-      tr.appendChild(el('td', { class: 'viewer-memo-text-cell', text: V.memos.get(record.id) || '' }));
+      tr.appendChild(el('td', { class: 'viewer-memo-text-cell', text: V.memos.get(record.persistKey) || '' }));
     }
 
     const btnTd = el('td');
@@ -1755,6 +1837,7 @@ function showScreen(name) {
 }
 
 function findRecord(id) { return V.records.find(r => r.id === id); }
+function findRecordByPersistKey(key) { return V.records.find(r => r.persistKey === key); }
 
 function renderDetail(id) {
   const record = findRecord(id);
@@ -1769,13 +1852,13 @@ function renderDetail(id) {
     ]));
   });
   const chk = el('input', { type: 'checkbox', id: 'detail-check' });
-  if (V.checked.has(id)) chk.setAttribute('checked', 'checked');
-  chk.addEventListener('change', () => toggleChecked(id));
+  if (V.checked.has(record.persistKey)) chk.setAttribute('checked', 'checked');
+  chk.addEventListener('change', () => toggleChecked(record.persistKey));
   bar.appendChild(el('label', { class: 'detail-check-label', for: 'detail-check' }, [chk, document.createTextNode('気になる')]));
 
   const memoBox = el('textarea', { id: 'detail-memo', placeholder: 'メモ（この端末にのみ保存されます）' });
-  memoBox.value = V.memos.get(id) || '';
-  memoBox.addEventListener('input', () => setMemo(id, memoBox.value));
+  memoBox.value = V.memos.get(record.persistKey) || '';
+  memoBox.addEventListener('input', () => setMemo(record.persistKey, memoBox.value));
   bar.appendChild(memoBox);
 
   const root = $('#detail-body-root');
@@ -1864,8 +1947,8 @@ function printFiltered() {
   list.forEach((r) => {
     const tr = el('tr');
     ids.forEach(id => tr.appendChild(el('td', { text: r.displayValues[id] || '' })));
-    tr.appendChild(el('td', { class: 'viewer-print-chk', text: V.checked.has(r.id) ? '☑' : '' }));
-    if (V.showMemoColumn) tr.appendChild(el('td', { text: V.memos.get(r.id) || '' }));
+    tr.appendChild(el('td', { class: 'viewer-print-chk', text: V.checked.has(r.persistKey) ? '☑' : '' }));
+    if (V.showMemoColumn) tr.appendChild(el('td', { text: V.memos.get(r.persistKey) || '' }));
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
@@ -1932,8 +2015,8 @@ async function importBackup(file) {
   try {
     const text = await readFileAsText(file);
     const parsed = JSON.parse(text);
-    V.checked = new Set((parsed.checked || []).filter(id => findRecord(id)));
-    V.memos = new Map(Object.entries(parsed.memos || {}).filter(([id]) => findRecord(Number(id))).map(([id, v]) => [Number(id), v]));
+    V.checked = new Set((parsed.checked || []).filter(key => findRecordByPersistKey(key)));
+    V.memos = new Map(Object.entries(parsed.memos || {}).filter(([key]) => findRecordByPersistKey(key)));
     saveLocalState();
     renderList();
   } catch (e) { /* 壊れたJSONは無視 */ }
@@ -1944,7 +2027,7 @@ function init() {
   V.visibleCols = new Set(displayIds());
   const local = loadLocalState();
   V.checked = new Set(local.checked);
-  V.memos = new Map(Object.entries(local.memos).map(([k, v]) => [Number(k), v]));
+  V.memos = new Map(Object.entries(local.memos));
 
   $('#viewer-title').textContent = PUBLIC_CONFIG.title || '';
   $('#viewer-description').textContent = PUBLIC_CONFIG.description || '';
@@ -1980,6 +2063,7 @@ if (typeof window !== 'undefined') {
     printFiltered, printSingleSnapshot, cleanupBulkPrint,
     exportBackup, importBackup, loadLocalState, saveLocalState,
     labelForFieldKey, displayIds, allDisplayCellIds,
+    findRecord, findRecordByPersistKey, computePersistKey,
     get DETAIL_STATE() { return DETAIL_STATE; },
     init,
   };

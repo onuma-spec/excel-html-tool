@@ -615,11 +615,56 @@ function bulkExportFiltered() {
 // 使うため、同時に中身を持たせるとdocument.getElementByIdが衝突する。'list'へ入る際に
 // #grid-rootを空にする運用（enterReviewMode参照）は維持し、詳細画面がいつ開かれても
 // 衝突しないようにする。
+let CURRENT_SCREEN = 'select'; // 自動下書き保存（scheduleDraftSave）が「今1次入力画面か」を判定するために使う
+
 function showScreen(name) {
+  CURRENT_SCREEN = name;
   $('#mode-select-root').style.display = name === 'select' ? '' : 'none';
   $('#normal-mode-root').style.display = name === 'normal' ? '' : 'none';
   $('#review-root').style.display = name === 'list' ? '' : 'none';
   $('#review-detail-root-wrap').style.display = name === 'detail' ? '' : 'none';
+}
+
+// ---------------------------------------------------------------------------
+// 1次入力の自動下書き保存（localStorage）。ブラウザ・タブが不意に閉じた場合に
+// 入力途中の内容が失われるのを防ぐ。対象は1次入力画面のみ（2次以降入力の詳細編集は
+// 読み込み元JSONという実体のバックアップが既にあるため対象外とする）。
+// 様式ごとに別々の下書きを持てるよう、様式名からキーを作る（複数の様式をタブで
+// 併用しても混ざらない）。
+// ---------------------------------------------------------------------------
+const DRAFT_STORAGE_KEY = 'filler_draft_' + sanitizeForFileName(STRUCTURE.formTitle || 'form');
+let draftSaveTimer = null;
+
+function saveDraftNow() {
+  try {
+    const data = GridRender.collectData(STATE);
+    window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ savedAt: new Date().toISOString(), data }));
+  } catch (e) { /* localStorageが使えない環境では下書き保存自体を諦める */ }
+}
+
+// 入力のたびに毎回保存すると負荷が大きいため、最後の入力から1秒後にまとめて保存する。
+function scheduleDraftSave() {
+  if (draftSaveTimer) clearTimeout(draftSaveTimer);
+  draftSaveTimer = setTimeout(saveDraftNow, 1000);
+}
+
+function clearDraft() {
+  try { window.localStorage.removeItem(DRAFT_STORAGE_KEY); } catch (e) { /* 何もしない */ }
+}
+
+// enterNormalMode()の初回描画時にだけ呼ぶ。下書きが無ければ何もしない。
+function offerDraftRestoreIfAny() {
+  let raw;
+  try { raw = window.localStorage.getItem(DRAFT_STORAGE_KEY); } catch (e) { return; }
+  if (!raw) return;
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch (e) { clearDraft(); return; }
+  const savedAt = parsed.savedAt ? new Date(parsed.savedAt).toLocaleString('ja-JP') : '不明な時刻';
+  if (window.confirm(`前回（${savedAt}）の入力途中の下書きが見つかりました。復元しますか？`)) {
+    GridRender.loadDataIntoGrid(STATE, parsed.data || {});
+  } else {
+    clearDraft();
+  }
 }
 
 // 1次入力のグリッドは初回だけ描画し、以後はSTEP1（入力画面の選択）との行き来では
@@ -633,6 +678,7 @@ function enterNormalMode() {
   if (!normalModeRendered) {
     GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
     normalModeRendered = true;
+    offerDraftRestoreIfAny();
   }
   showScreen('normal');
 }
@@ -644,6 +690,17 @@ function enterNormalMode() {
 function hasUnsavedNormalInput() {
   const inputs = $('#grid-root').querySelectorAll('input, textarea, select');
   return [...inputs].some(elx => String(elx.value || '').trim() !== '');
+}
+
+// 「新規入力を始める（クリア）」ボタン用：1次入力欄を全て空にし、数式セルも再計算して
+// （自動計算セルが古い値のまま残らないように）新規入力を始められる状態に戻す。
+// 自動下書き（clearDraft）も合わせて消す：ここで意図的に破棄した内容を、次回また
+// 「復元しますか？」と聞かれては本末転倒なため。
+function clearNormalModeGrid() {
+  const inputs = $('#grid-root').querySelectorAll('input, textarea, select');
+  inputs.forEach((elx) => { elx.value = ''; });
+  GridRender.recalcAllFormulas(STATE);
+  clearDraft();
 }
 
 // #grid-root（同じcellId体系を使うレビュー画面）へ移る前に、1次入力欄が空でなければ
@@ -768,6 +825,13 @@ function init() {
     // インラインで明示的に'flex'を指定してスタイルシートの宣言を上書きする必要がある。
     $('#export-dir-bar').style.display = 'flex';
   }
+  // navigator.clipboard.readTextが無いブラウザ（Firefox/Safari等）ではボタン自体を出さない
+  // （showDirectoryPicker等と同じ機能検出パターン）。#bulk-paste-barはHTML側で
+  // インラインstyle="display:none"を持つため、.style.display=''で確実に表示できる
+  // （CSS詳細度の罠を踏まないよう、スタイルシート側のdisplay:noneには依存しない）。
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    $('#bulk-paste-bar').style.display = '';
+  }
 
   $('#btn-mode-normal').addEventListener('click', enterNormalMode);
   $('#btn-mode-review').addEventListener('click', enterReviewMode);
@@ -787,6 +851,21 @@ function init() {
   $('#review-btn-pick-dir').addEventListener('click', pickReviewDirectory);
   $('#review-btn-refresh').addEventListener('click', scanReviewDirectory);
   $('#btn-pick-export-dir').addEventListener('click', pickExportDirectory);
+  $('#btn-clear-normal').addEventListener('click', () => {
+    if (hasUnsavedNormalInput() && !window.confirm('入力中の内容がすべて消えます。よろしいですか？')) {
+      return;
+    }
+    clearNormalModeGrid();
+    setStatus('入力内容をクリアしました。新しく入力を始められます。');
+  });
+  $('#btn-bulk-paste').addEventListener('click', async () => {
+    try {
+      const rowCount = await GridRender.pasteFromClipboardAtOrigin(STATE);
+      setStatus(`クリップボードから貼り付けました（${rowCount}行）。空欄でないセルの一部が対応する入力欄に反映されていない場合があります。結果をご確認ください。`);
+    } catch (e) {
+      setStatus('⚠ クリップボードの読み取りに失敗しました。ブラウザの権限設定をご確認いただくか、入力欄をクリックしてから直接貼り付け（Ctrl+V）してください。');
+    }
+  });
 
   $('#btn-export').addEventListener('click', () => {
     const missing = findMissingRequiredFields();
@@ -803,6 +882,7 @@ function init() {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     saveBlob(blob, filename, (result) => {
       setStatus(statusMessageForSave(result, filename, '書き出しました。'));
+      if (result !== 'cancelled') clearDraft(); // 書き出しが完了した内容は下書きとして復元を促す必要が無いため
     });
   });
 
@@ -823,6 +903,14 @@ function init() {
   });
 
   GridRender.setupPasteHandler(STATE, $('#status'));
+
+  // 1次入力画面にいる間だけ自動下書き保存を走らせる（CURRENT_SCREEN経由でスコープする。
+  // 2次以降入力の詳細編集は同じcellId体系を使うが対象外とする方針のため）。
+  document.addEventListener('input', (ev) => {
+    if (CURRENT_SCREEN === 'normal' && ev.target && ev.target.id && ev.target.id.startsWith('cell_')) {
+      scheduleDraftSave();
+    }
+  });
 
   // レビュー欄が定義されている様式ではSTEP1（入力画面の選択）から始める。
   // 定義が無い様式（1段階しか無い様式）では選択を挟まず、直接1次入力から始める。
@@ -850,5 +938,8 @@ if (typeof window !== 'undefined') {
     saveBlob, pickExportDirectory,
     get EXPORT_DIR_HANDLE() { return EXPORT_DIR_HANDLE; },
     setExportDirHandle: (h) => { EXPORT_DIR_HANDLE = h; }, // テスト用（実ブラウザではpickExportDirectory経由）
+    get CURRENT_SCREEN() { return CURRENT_SCREEN; },
+    saveDraftNow, scheduleDraftSave, clearDraft, offerDraftRestoreIfAny, DRAFT_STORAGE_KEY,
+    clearNormalModeGrid,
   };
 }

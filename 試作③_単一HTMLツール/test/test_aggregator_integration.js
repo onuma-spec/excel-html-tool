@@ -62,6 +62,27 @@ function buildStructureFromFixture(fixturePath, formTitle) {
   };
 }
 
+function cellIdFor(structure, row, col) {
+  return `cell_R${row}_C${col}`;
+}
+
+// 「事業名」（A列見出し）→ B列に値、という最小の1セクション様式。test_viewer_integration.jsの
+// buildSimpleStructureと同じ考え方（fileNameFieldsによる同一事業判定のテスト専用。
+// FIXTURE（simple_moshikomi.xlsx）はrenderType未設定の列が複数行にまたがり自動命名が
+// 曖昧になるため、識別キーの検証にはこちらの手書きfixtureを使う）。
+function buildFileNameFieldsStructure() {
+  return {
+    formTitle: 'テスト様式',
+    maxRow: 1, maxCol: 2, widths: [], heights: [],
+    sections: [{ title: 'シート', row0: 1, row1: 1 }],
+    manualGroups: [],
+    cells: [
+      { row: 1, col: 1, row2: 1, col2: 1, value: '事業名', isFormula: false, formula: '', hasText: true, blocked: false, fillColor: null, renderType: null, renderOptions: null, dbKey: null },
+      { row: 1, col: 2, row2: 1, col2: 2, value: '', isFormula: false, formula: '', hasText: false, blocked: false, fillColor: null, renderType: null, renderOptions: null, dbKey: null },
+    ],
+  };
+}
+
 // 実機確認用に保存済みの「R7年度実施 事務事業評価_入力フォーム.html」（Plan/Do/Check/Action
 // 様式、Doセクションに「決算見込額」等8行の繰り返し列を持つ）からSTRUCTUREを取り出す。
 // 繰り返し列（グループ）を含む実データでの検証に使う（simple_moshikomi.xlsxには
@@ -165,6 +186,55 @@ async function readyPage(structure, opts) {
       await win.__app.handleFileInput([f1]);
       await win.__app.handleFileInput([f1]);
       assertEqual(win.__app.AGG.records.length, 1);
+    });
+
+    await testAsync('fileNameFields未設定の様式では、内容が同じでもファイル名が違えば別レコードとして追加される（従来挙動）', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const f1 = new win.File([JSON.stringify({ シート: { col3: 'A事業' } })], 'a_20260810.json', { type: 'application/json' });
+      const f2 = new win.File([JSON.stringify({ シート: { col3: 'A事業' } })], 'a_20260811.json', { type: 'application/json' });
+      await win.__app.handleFileInput([f1]);
+      await win.__app.handleFileInput([f2]);
+      assertEqual(win.__app.AGG.records.length, 2, 'fileNameFieldsが無い様式では内容の同一性を判定できないため、従来通り2件になる');
+    });
+
+    await testAsync('fileNameFields設定済みの様式では、同じ事業の再提出（内容修正・別ファイル名）は重複追加ではなく既存レコードの更新として扱われる', async () => {
+      const structure = buildFileNameFieldsStructure();
+      structure.fileNameFields = [cellIdFor(structure, 1, 2)];
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      // 部署が1回目に提出（ファイル名に書き出し日20260810を含む）
+      const f1 = new win.File([JSON.stringify({ シート: { 事業名: '広報広聴事業' } })], 'テスト様式_広報広聴事業_20260810.json', { type: 'application/json' });
+      await win.__app.handleFileInput([f1]);
+      assertEqual(win.__app.AGG.records.length, 1);
+
+      // 別の事業も1件読み込んでおく（更新対象と無関係なレコードが巻き込まれないことの確認用）
+      const other = new win.File([JSON.stringify({ シート: { 事業名: '道路維持事業' } })], 'テスト様式_道路維持事業_20260810.json', { type: 'application/json' });
+      await win.__app.handleFileInput([other]);
+      assertEqual(win.__app.AGG.records.length, 2);
+
+      // 同じ「広報広聴事業」を後日ファイル名（日付部分）を変えて再提出したケースを再現
+      const f1Updated = new win.File([JSON.stringify({ シート: { 事業名: '広報広聴事業' } })], 'テスト様式_広報広聴事業_20260812.json', { type: 'application/json' });
+      const result = await win.__app.handleFileInput([f1Updated]);
+      assertEqual(win.__app.AGG.records.length, 2, 'ファイル名が違っても同じ事業と判定され、件数は増えないはず');
+      const rec = win.__app.AGG.records.find(r => r.fileName === 'テスト様式_広報広聴事業_20260812.json');
+      assertTrue(!!rec, '新しいファイル名で既存レコードが更新されているはず');
+      assertFalse(win.__app.AGG.records.some(r => r.fileName === 'テスト様式_広報広聴事業_20260810.json'), '古いファイル名のレコードは残っていないはず（置き換え済み）');
+      assertTrue(win.document.getElementById('status').textContent.includes('既存事業の更新'), 'ステータスに更新件数の注記が出るはず');
+    });
+
+    await testAsync('businessKeyForRecordは、fileNameFieldsの値をつないだ文字列を返す（fileNameFields未設定ならnull）', async () => {
+      const withKeyStructure = buildFileNameFieldsStructure();
+      withKeyStructure.fileNameFields = [cellIdFor(withKeyStructure, 1, 2)];
+      const domWithKey = await readyPage(withKeyStructure);
+      const key = domWithKey.window.__app.businessKeyForRecord({ シート: { 事業名: '広報広聴事業' } });
+      assertEqual(key, '広報広聴事業');
+
+      const withoutKeyStructure = buildFileNameFieldsStructure();
+      const domWithoutKey = await readyPage(withoutKeyStructure);
+      const noKey = domWithoutKey.window.__app.businessKeyForRecord({ シート: { 事業名: '広報広聴事業' } });
+      assertEqual(noKey, null);
     });
 
     await testAsync('壊れたJSONはスキップされる', async () => {
