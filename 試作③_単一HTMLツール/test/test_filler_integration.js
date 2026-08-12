@@ -539,6 +539,24 @@ function buildSampleData(dom, values) {
       assertTrue(called);
     });
 
+    await testAsync('通常画面の印刷ボタンは、一括印刷と同じ#bulk-print-rootへ印刷用スナップショット（ルーラー無し）を1件だけ描画する', async () => {
+      const structure = buildStructureFromFixture(FIXTURE, 'テスト様式');
+      const c3id = 'cell_R3_C3';
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      win.document.getElementById(c3id).value = '事業A';
+      win.print = () => {};
+      win.document.getElementById('btn-print-grid').click();
+      const sections = win.document.querySelectorAll('#bulk-print-root .bulk-print-record');
+      assertEqual(sections.length, 1, '単発印刷は1件分のスナップショットだけを作るはず');
+      assertTrue(win.document.body.classList.contains('bulk-printing'));
+      const table = sections[0].querySelector('table.print-grid');
+      assertTrue(!!table, '印刷用テーブル（ルーラー無し）が描画されているはず');
+      assertEqual(table.querySelectorAll('.ruler-col, .ruler-row-num').length, 0);
+      assertTrue(sections[0].querySelector('h2').textContent.includes('テスト様式'), '見出しにフォームのタイトルが表示されるはず');
+      assertTrue(table.textContent.includes('事業A'), '現在の入力値がテキストとして反映されているはず');
+    });
+
     await testAsync('レビュー詳細画面の印刷ボタン（#btn-print-detail）をクリックしても例外を投げない', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
@@ -552,6 +570,25 @@ function buildSampleData(dom, values) {
       win.print = () => { called = true; };
       win.document.getElementById('btn-print-detail').click();
       assertTrue(called);
+    });
+
+    await testAsync('レビュー詳細画面の印刷ボタンも、同じ#bulk-print-rootの仕組みでスナップショットを1件だけ描画する', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
+      structure.reviewFields = [c4id];
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
+      win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
+      win.__app.openReviewDetail(win.__app.REVIEW.records[0]);
+      win.document.getElementById(c4id).value = '判定OK';
+      win.print = () => {};
+      win.document.getElementById('btn-print-detail').click();
+      const sections = win.document.querySelectorAll('#bulk-print-root .bulk-print-record');
+      assertEqual(sections.length, 1);
+      const table = sections[0].querySelector('table.print-grid');
+      assertTrue(table.textContent.includes('事業A'));
+      assertTrue(table.textContent.includes('判定OK'), 'レビュー欄に入力した内容も反映されるはず');
     });
   });
 
@@ -1025,8 +1062,8 @@ function buildSampleData(dom, values) {
       win.__app.bulkPrintFiltered();
       const idsRemaining = win.document.querySelectorAll('#bulk-print-root [id]');
       assertEqual(idsRemaining.length, 0, 'id属性を持つ要素が1つも残っていないはず');
-      const tables = win.document.querySelectorAll('#bulk-print-root table.excel-grid');
-      assertEqual(tables.length, 2, '2レコード分のテーブルが両方描画されているはず');
+      const tables = win.document.querySelectorAll('#bulk-print-root table.print-grid');
+      assertEqual(tables.length, 2, '2レコード分の印刷用テーブルが両方描画されているはず');
     });
 
     await testAsync('cleanupBulkPrintを呼ぶと、bulk-printingクラスと#bulk-print-rootの中身が消える', async () => {

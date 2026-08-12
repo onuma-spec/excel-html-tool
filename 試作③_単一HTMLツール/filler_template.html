@@ -80,6 +80,24 @@
   #bulk-print-root{display:none;}
   .bulk-print-record{margin-bottom:24px;}
   .bulk-print-record h2{font-size:1rem; margin:0 0 8px;}
+
+  /* 印刷専用テーブル（grid_render.jsのbuildPrintTable）。編集用グリッド（table.excel-grid）
+     とは別の見た目：ルーラーなし・値はテキストのみ・行の高さは内容に応じて自動で詰まる。
+     print-color-adjustは画面上では何もしないため@media printの外に置いても安全。 */
+  /* padding/line-height/font-sizeは、Excel由来の行の高さ（13px前後の行が大半）に
+     近づけるためあえて詰めている。既定の.78rem/1.4/padding3pxのままだと1行の空欄セルでも
+     約24pxになり、52行中の大半を占める空欄行だけで元の見た目より大きく間延びしてしまう
+     （実機確認で「元は1ページなのに3ページになる」不具合として発覚）。 */
+  table.print-grid{border-collapse:collapse; table-layout:fixed; width:100%;}
+  table.print-grid td{
+    border:1px solid #999; padding:1px 6px; vertical-align:top;
+    font-size:.72rem; line-height:1.25; white-space:pre-wrap; overflow-wrap:anywhere;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  table.print-grid td.print-cell-label{background:#eeeae0; font-weight:bold;}
+  table.print-grid td.print-cell-calc{text-align:right; background:#f2e6ce;}
+  table.print-grid td.print-cell-blocked{background:#f2f1ec;}
+  table.print-grid td.print-cell-input{background:#fff;}
   #review-table-root{overflow-x:auto;}
   table.review-table{border-collapse:collapse; width:100%; font-size:.8rem; background:var(--card);}
   table.review-table th, table.review-table td{border:1px solid var(--line); padding:5px 7px; text-align:left; vertical-align:top;}
@@ -103,6 +121,8 @@
   #review-detail-root-wrap{margin-top:10px;}
   #review-detail-actions{display:flex; gap:10px; margin:10px 0; flex-wrap:wrap; align-items:center;}
 
+  @page{margin:10mm;}
+
   @media print{
     .no-print{display:none !important;}
     body{background:#fff;}
@@ -110,8 +130,10 @@
     #grid-root, #review-table-root{overflow:visible; border:none; padding:0;}
     th.ruler-col, th.ruler-row-num, th.ruler-corner{position:static;}
 
-    /* 一括印刷中は#bulk-print-root以外の直下要素を全て隠し、スナップショットだけを
-       印刷対象にする（no-printクラスの有無に関わらず強制的に隠す）。 */
+    /* 一括印刷・単発印刷（1次入力／レビュー詳細）共通：印刷時は#bulk-print-root以外の
+       直下要素を全て隠し、スナップショットだけを印刷対象にする（no-printクラスの
+       有無に関わらず強制的に隠す）。単発印刷でも同じ仕組み（bulk-printingクラス・
+       #bulk-print-root）を使い回す（filler_app.jsのprintSingleSnapshot参照）。 */
     body.bulk-printing .wrap > *:not(#bulk-print-root){display:none !important;}
     body.bulk-printing #bulk-print-root{display:block;}
     .bulk-print-record{page-break-after:always;}

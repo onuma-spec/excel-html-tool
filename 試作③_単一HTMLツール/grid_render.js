@@ -228,6 +228,58 @@ function recalcAllFormulas(state) {
 }
 
 // ---------------------------------------------------------------------------
+// 印刷専用スナップショット：renderGridが作る編集用グリッド（ルーラー行・列付き、
+// 値は<input>/<textarea>/<select>）とは別に、印刷にだけ使う読み取り専用テーブルを
+// 組み立てる。ルーラーは含めず、値は全てテキストとして描画する（textareaの既定サイズに
+// 引っぱられて行が間延びする問題を避けるため。実機確認で「1事業が9ページに分割される」
+// という不具合として発覚した）。
+// 呼び出し時点でstateがどこかのrootElへ既にrenderGrid()済みであること（cellIdから
+// document.getElementByIdで値を引けること）が前提。domGetValue／evalFormulaInfoと同じ制約。
+// <tr>は自前セルを持たない行でも必ず生成する（renderGridと同じ理由。省略すると
+// rowspanが後続の無関係な行にはみ出す表示バグになる。上のregressionテスト参照）。
+// ---------------------------------------------------------------------------
+function buildPrintTable(state) {
+  const { grid, maxRow, maxCol, widths } = state;
+  const table = el('table', { class: 'print-grid' });
+  const colgroup = el('colgroup');
+  for (let c = 1; c <= maxCol; c++) {
+    colgroup.appendChild(el('col', { style: `width:${(widths && widths[c - 1]) || 64}px` }));
+  }
+  table.appendChild(colgroup);
+
+  const tbody = el('tbody');
+  for (let r = 1; r <= maxRow; r++) {
+    const tr = el('tr');
+    for (let c = 1; c <= maxCol; c++) {
+      const info = grid.get(r + ',' + c);
+      if (!info || info.row !== r || info.col !== c) continue;
+      const rowspan = info.row2 - info.row + 1;
+      const colspan = info.col2 - info.col + 1;
+      const td = el('td', { rowspan: String(rowspan), colspan: String(colspan) });
+      if (info.isFormula) {
+        td.className = 'print-cell-calc';
+        const val = evalFormulaInfo(state, info);
+        td.textContent = val === null ? '' : val.toLocaleString('ja-JP');
+      } else if (info.blocked) {
+        td.className = 'print-cell-blocked';
+      } else if (info.hasText) {
+        td.className = 'print-cell-label';
+        if (info.fillColor) td.style.background = '#' + info.fillColor;
+        td.textContent = String(info.value);
+      } else {
+        td.className = 'print-cell-input';
+        const inputEl = document.getElementById(CoreLogic.cellId(info));
+        td.textContent = inputEl ? inputEl.value : '';
+      }
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  return table;
+}
+
+// ---------------------------------------------------------------------------
 // 書き出し／読み込み（DOM値 ⇄ JSON）
 // ---------------------------------------------------------------------------
 
@@ -429,7 +481,7 @@ function setupPasteHandler(state, statusEl) {
 }
 
 return {
-  buildInputControl, renderGrid, collectData, loadDataIntoGrid, recalcAllFormulas,
+  buildInputControl, renderGrid, buildPrintTable, collectData, loadDataIntoGrid, recalcAllFormulas,
   setupPasteHandler,
 };
 });

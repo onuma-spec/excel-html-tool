@@ -302,6 +302,78 @@ runSuite('grid_render: 貼り付け（タブ区切りテキスト）', () => {
   });
 });
 
+runSuite('grid_render: buildPrintTable（印刷専用スナップショット）', () => {
+  test('ルーラー（列アルファベット・行番号）を含まない', () => {
+    const ws = mockSheet({ maxRow: 2, maxCol: 2, cells: [{ row: 1, col: 1, v: '事業名', fill: 'DDEBF7' }] });
+    const state = stateFromWs(ws);
+    const root = freshRoot();
+    GridRender.renderGrid(root, state, { showGear: false }); // buildPrintTableはDOM上の値を読むため先に描画しておく必要がある
+    const table = GridRender.buildPrintTable(state);
+    assertEqual(table.querySelectorAll('.ruler-col, .ruler-row-num, .ruler-corner').length, 0);
+    assertEqual(table.querySelectorAll('colgroup col').length, 2, 'ルーラー列を含まないぶん、colの数はmaxColと一致するはず');
+  });
+
+  test('見出しセルはテキストとして描画され、塗りつぶし色があればそれを反映する', () => {
+    const ws = mockSheet({ maxRow: 1, maxCol: 2, cells: [{ row: 1, col: 1, v: '事業名', fill: 'DDEBF7' }] });
+    const state = stateFromWs(ws);
+    const root = freshRoot();
+    GridRender.renderGrid(root, state, { showGear: false });
+    const table = GridRender.buildPrintTable(state);
+    const td = table.querySelector('td.print-cell-label');
+    assertEqual(td.textContent, '事業名');
+    assertEqual(td.style.background, 'rgb(221, 235, 247)', 'Excel由来のfillColor(#DDEBF7)がそのまま反映されるはず');
+  });
+
+  test('入力欄はDOM上の現在値をテキストとして描画する（input/textarea/select要素は使わない）', () => {
+    const ws = mockSheet({ maxRow: 1, maxCol: 2, cells: [{ row: 1, col: 1, v: '事業名', fill: 'DDEBF7' }] });
+    const state = stateFromWs(ws);
+    const root = freshRoot();
+    GridRender.renderGrid(root, state, { showGear: false });
+    document.getElementById(CoreLogic.cellId(state.grid.get('1,2'))).value = '広報広聴事業';
+    const table = GridRender.buildPrintTable(state);
+    const td = table.querySelector('td.print-cell-input');
+    assertEqual(td.textContent, '広報広聴事業');
+    assertEqual(table.querySelectorAll('input, textarea, select').length, 0, '印刷用テーブルは静的テキストのみで構成されるはず');
+  });
+
+  test('数式セルは計算済みの値をテキストとして描画する', () => {
+    const ws = mockSheet({
+      maxRow: 3, maxCol: 2,
+      cells: [
+        { row: 1, col: 1, v: '決算見込額' },
+        { row: 2, col: 1, v: '内特財' },
+        { row: 3, col: 1, v: '合計' },
+        { row: 3, col: 2, f: 'SUM(B1:B2)' },
+      ],
+    });
+    const state = stateFromWs(ws, [{ title: 'シート', row0: 1, row1: 3 }]);
+    const root = freshRoot();
+    GridRender.renderGrid(root, state, { showGear: false });
+    document.getElementById(CoreLogic.cellId(state.grid.get('1,2'))).value = '100';
+    document.getElementById(CoreLogic.cellId(state.grid.get('2,2'))).value = '50';
+    GridRender.recalcAllFormulas(state);
+    const table = GridRender.buildPrintTable(state);
+    const td = table.querySelector('td.print-cell-calc');
+    assertEqual(td.textContent, '150');
+  });
+
+  test('自前セルを持たない行でも<tr>は必ず生成される（renderGridと同じrowspan整合性）', () => {
+    const ws = mockSheet({
+      maxRow: 4, maxCol: 2,
+      cells: [
+        { row: 1, col: 1, v: '成果指標', rowspan: 4 },
+        { row: 2, col: 2, v: '達成状況', rowspan: 3 },
+      ],
+    });
+    const state = stateFromWs(ws);
+    const root = freshRoot();
+    GridRender.renderGrid(root, state, { showGear: false });
+    const table = GridRender.buildPrintTable(state);
+    const trs = table.querySelectorAll('tbody tr');
+    assertEqual(trs.length, 4, '4行目が自前セルを持たなくても<tr>は省略されないはず（省略すると過去にrowspanが後続行へはみ出すバグがあった）');
+  });
+});
+
 if (require.main === module) {
   process.exit(summary() ? 0 : 1);
 }

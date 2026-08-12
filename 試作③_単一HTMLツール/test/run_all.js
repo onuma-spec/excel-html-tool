@@ -13,6 +13,9 @@ const FILES = [
   'test_grid_render.js',
   'test_builder_integration.js',
   'test_filler_integration.js',
+  'test_aggregator_integration.js',
+  'test_viewer_integration.js',
+  'test_full_pipeline_smoke.js',
   'test_real_fixtures_smoke.js',
 ];
 

@@ -16,6 +16,13 @@ let EXPORT_DIR_HANDLE = null;
 // doExportAsForm()がそれぞれのフォーム固有の内容に置き換えてから書き出す。
 const FILLER_TEMPLATE = "__FILLER_TEMPLATE_JSON__";
 
+// ツール3（複数事業のJSONを集約し、住民公開ページを書き出す集約ツール）のHTML全文。
+// ビルド時（assemble.py）に埋め込まれる。「__STRUCTURE__」の1箇所だけが未確定のまま
+// 残っており（この集約ツール自身が住民公開ページのVIEWER_TEMPLATEを内包しているため、
+// ビューアー側のプレースホルダーはこの時点では触らない）、doExportAsAggregator()が
+// 置き換えてから書き出す。
+const AGGREGATOR_TEMPLATE = "__AGGREGATOR_TEMPLATE_JSON__";
+
 // --- 複数選択（一括手直し）関連の状態。ツール1は常時このモード。 ---
 let SELECTED = new Set(); // 'row,col'（アンカー座標）の集合
 let DRAG_START_SNAPSHOT = null;
@@ -836,6 +843,22 @@ function doExportAsForm() {
   });
 }
 
+// 集約ツール（ツール3）の書き出し。doExportAsForm()と同じ「テンプレート文字列注入＋
+// Blobダウンロード」の仕組みだが、埋め込むのはSTRUCTURE（構造）だけで、データは
+// 集約ツール自身がSTEP1で読み込む（このビルダーはデータを持たない）。
+function doExportAsAggregator() {
+  if (!CURRENT || !CURRENT.grid) return;
+  const structure = serializeStructure();
+  const html = AGGREGATOR_TEMPLATE
+    .replace(/__FORM_TITLE__/g, structure.formTitle)
+    .replace('/* __STRUCTURE__ */', JSON.stringify(structure));
+  const filename = `${structure.formTitle}_集約ツール.html`;
+  const blob = new Blob([html], { type: 'text/html' });
+  saveBlob(blob, filename, (result) => {
+    setStatus(statusMessageForSave(result, filename, '集約ツールを書き出しました。'));
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 書き出し前チェック：現在の設定で入力しても消えてしまうセルがないかを検証し、
 // 結果に応じてプレビュー・一括修正の導線・書き出し可否を提示する。
@@ -1318,7 +1341,11 @@ function renderCheckPanel() {
     forceBtn.addEventListener('click', doExportAsForm);
     btnRow.appendChild(forceBtn);
   }
+  const aggregatorBtn = el('button', { class: 'secondary', text: '🗂 集約ツールを書き出す', type: 'button' });
+  aggregatorBtn.addEventListener('click', doExportAsAggregator);
+  btnRow.appendChild(aggregatorBtn);
   box.appendChild(btnRow);
+  box.appendChild(el('p', { class: 'm-note', text: '🗂 集約ツール：各部署が入力フォームで書き出したJSONを複数まとめて読み込み、住民公開用のページ（検索・絞り込みできる一覧・詳細画面）を書き出せる別のツールです。全部署の入力が出揃ってから使ってください。' }));
 
   // このパネルの主目的が「データ構造の確認」なので、プレビューは折りたたまずに常時表示する
   // （旧仕様では<details>で開閉式だったが、開く一手間自体をなくす）。
@@ -1391,7 +1418,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('DOMContentLoaded', init);
   window.__app = {
     handleFile, handleFormHtmlFile, handleAnyFile, extractStructureFromFillerHtml, rebuildAndRender, init,
-    openCellSettings, closeModal, doExportAsForm, serializeStructure,
+    openCellSettings, closeModal, doExportAsForm, doExportAsAggregator, serializeStructure,
     openManualGroupModal, selectionRowRange, renderCheckPanel,
     selectRowRangeAllColumns, summarizeUnreachableRanges, autoBlockUnreachableCells,
     saveBlob, pickExportDirectory,

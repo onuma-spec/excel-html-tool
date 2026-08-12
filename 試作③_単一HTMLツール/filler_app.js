@@ -528,22 +528,23 @@ function renderReviewList() {
 }
 
 // 1件分のレコードを、印刷用の読み取り専用スナップショット（<div class="bulk-print-record">）
-// として組み立てる。renderGrid/loadDataIntoGridで#review-scratch-rootに実描画してから
-// テーブルをクローンし、id属性を全て取り除く（複数レコードを同時にDOMへ並べるため、
-// 同じcellId体系のid属性がそのまま残ると重複IDになってしまうことを避ける）。
+// として組み立てる。renderGrid/loadDataIntoGridで#review-scratch-rootに一旦実描画し
+// （cellIdからdocument.getElementByIdで値を引けるようにするため）、その値を
+// GridRender.buildPrintTable()で読み取り専用の静的テーブル（ルーラーなし・
+// input/textarea/selectを使わずテキストのみ）に変換する。以前は編集用グリッドを
+// そのままクローンしてid属性だけ取り除いていたが、textareaの既定サイズに引っぱられて
+// 行が間延びし、1事業が何ページにも分割される不具合があった（実機確認で発覚）。
 function buildBulkPrintSection(record) {
   const scratch = $('#review-scratch-root');
   const tempState = buildStateFromStructure(STRUCTURE);
-  GridRender.renderGrid(scratch, tempState, { showGear: false, readonly: true, reviewFieldIds: reviewFieldIdSet() });
+  GridRender.renderGrid(scratch, tempState, { showGear: false });
   GridRender.loadDataIntoGrid(tempState, record.data || {});
-  const table = scratch.querySelector('table');
-  const clone = table.cloneNode(true);
-  clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+  const table = GridRender.buildPrintTable(tempState);
   scratch.innerHTML = '';
 
   const section = el('div', { class: 'bulk-print-record' });
   section.appendChild(el('h2', { text: record.fileName }));
-  section.appendChild(clone);
+  section.appendChild(table);
   return section;
 }
 
@@ -555,6 +556,23 @@ function bulkPrintFiltered() {
   const root = $('#bulk-print-root');
   root.innerHTML = '';
   filtered.forEach((record) => root.appendChild(buildBulkPrintSection(record)));
+  document.body.classList.add('bulk-printing');
+  window.print();
+}
+
+// 1件だけを印刷する（1次入力画面・レビュー詳細画面の「🖨 この画面を印刷する」）。
+// bulkPrintFilteredと同じ#bulk-print-root／bulk-printingクラスの仕組みを流用する
+// （後片付けもafterprintのcleanupBulkPrintをそのまま使い回せる）。stateは既に
+// どこかのrootへrenderGrid済みのもの（STATE・DETAIL_STATE）を渡す：buildPrintTableは
+// document.getElementByIdで値を読むため、未描画のstateを渡すと空欄になってしまう。
+function printSingleSnapshot(state, heading) {
+  const table = GridRender.buildPrintTable(state);
+  const root = $('#bulk-print-root');
+  root.innerHTML = '';
+  const section = el('div', { class: 'bulk-print-record' });
+  if (heading) section.appendChild(el('h2', { text: heading }));
+  section.appendChild(table);
+  root.appendChild(section);
   document.body.classList.add('bulk-printing');
   window.print();
 }
@@ -757,8 +775,8 @@ function init() {
   $('#btn-close-review').addEventListener('click', backToModeSelect);
   $('#btn-back-to-review-list').addEventListener('click', backToReviewListFromDetail);
   $('#btn-save-detail').addEventListener('click', saveDetailAndBackToList);
-  $('#btn-print-grid').addEventListener('click', () => window.print());
-  $('#btn-print-detail').addEventListener('click', () => window.print());
+  $('#btn-print-grid').addEventListener('click', () => printSingleSnapshot(STATE, STRUCTURE.formTitle));
+  $('#btn-print-detail').addEventListener('click', () => printSingleSnapshot(DETAIL_STATE, STRUCTURE.formTitle));
   $('#btn-bulk-print').addEventListener('click', bulkPrintFiltered);
   $('#btn-bulk-export').addEventListener('click', bulkExportFiltered);
   window.addEventListener('afterprint', cleanupBulkPrint);
