@@ -1,0 +1,12 @@
+node_modules/
+__pycache__/
+
+# assemble.pyが生成する確認用の中間出力（ビルド成果物。excel_form_builder.htmlに
+# 全て埋め込まれるためコミット不要。再生成する場合は `python assemble.py`）
+/_filler_template_debug.html
+/_viewer_template_debug.html
+/_aggregator_template_debug.html
+
+# 実機確認で取得した他省庁・自治体の公開Excel様式（内閣府・厚労省・総務省・香川県他）。
+# 動作確認用フィクスチャで、他者の公開物のためpublicリポジトリには含めない。
+/実機確認/公開テンプレ調達/
