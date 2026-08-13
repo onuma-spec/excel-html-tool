@@ -191,6 +191,38 @@ runSuite('grid_render: collectData / loadDataIntoGrid の往復', () => {
     GridRender.loadDataIntoGrid(state, data);
     assertEqual(input.value, 'こういう目的です', '改名後のキーで正しく値を探し出し復元できるべき');
   });
+
+  // 複数値を持つ行（例：予算科目→一般会計／款／項）は、core_logic.jsのassignEntryで
+  // 「文脈_項目名」の形にフラット化される。読込側（fillRow・fillTopLevelEntry）が
+  // この新しいキー形式に対称的に対応していないと、書き出しは直っていても
+  // 読込側だけ旧来のnested dictを探しに行って値が復元されない、という新種の
+  // バグになりかねない（対称性の直接確認）。
+  test('複数値を持つ行（文脈_項目名にフラット化される行）も書き出し→読込で正しく往復する', () => {
+    const ws = mockSheet({
+      maxRow: 1, maxCol: 4,
+      cells: [
+        { row: 1, col: 1, v: '予算科目', fill: 'DDEBF7' },
+        { row: 1, col: 2, v: '款', fill: 'DDEBF7' },
+        // col3は空欄の値セル
+        { row: 1, col: 4, v: '項', fill: 'DDEBF7' },
+        // col5相当は無い（maxCol=4なので「項」の値セルは無し。「款」だけ検証すれば十分）
+      ],
+    });
+    const state = stateFromWs(ws);
+    state.fileName = 'test.xlsx';
+    const root = freshRoot();
+    GridRender.renderGrid(root, state, { showGear: false });
+
+    const kanInput = document.getElementById(CoreLogic.cellId(state.grid.get('1,3')));
+    kanInput.value = '5';
+
+    const data = GridRender.collectData(state);
+    assertEqual(data['シート'], { '予算科目_款': '5' }, '「文脈_項目名」の形にフラット化されて出力されるべき');
+
+    kanInput.value = '';
+    GridRender.loadDataIntoGrid(state, data);
+    assertEqual(kanInput.value, '5', 'フラット化されたキーから正しく値を探し出し復元できるべき');
+  });
 });
 
 runSuite('grid_render: 数式（SUM）の再計算', () => {

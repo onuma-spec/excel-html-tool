@@ -380,6 +380,24 @@ function groupChildrenToResult(children, opts) {
 // 記録したい場合に配列を渡す（findMappingTargets専用）。渡すと、defaultKeyFor()による
 // 自動命名（colN）が使われたセルの{cell, rowLabel, groupLabel}がここに積まれる。
 // 通常のJSON書き出し（collector省略）には一切影響しない。
+// 単発行のentryをresultへ反映する。hasRealData=falseは出力しない
+// （ラベル同士が隣接する見出し行の残骸を、明示的な手直しなしでは実データとして
+// 扱わない。buildRowEntryのコメント参照）。
+// 複数値を持つ行（value がプレーンオブジェクト）は入れ子にせず「文脈_項目名」の形に
+// フラット化する。文脈だけを親キーにした入れ子だと、列位置由来の自動名（colN）が
+// 他の行の自動名と衝突しやすい（同じ列番号は何十行にもわたって繰り返し出現するため）。
+// フラット化すれば文脈自体がキーの一部になり、天然の名前空間として機能する。
+function assignEntry(result, entry) {
+  if (!entry.label || !entry.hasRealData) return;
+  if (entry.value && typeof entry.value === 'object' && !Array.isArray(entry.value)) {
+    Object.keys(entry.value).forEach((subKey) => {
+      result[entry.label + '_' + subKey] = entry.value[subKey];
+    });
+  } else {
+    result[entry.label] = entry.value;
+  }
+}
+
 function buildSectionObject(grid, row0, row1, maxCol, getValue, manualGroups, collector) {
   getValue = getValue || defaultGetValue;
   const units = buildUnits(grid, row0, row1, maxCol);
@@ -399,7 +417,7 @@ function buildSectionObject(grid, row0, row1, maxCol, getValue, manualGroups, co
     // すれば十分。自動検出の判定自体には手を加えない）。
     if (manualGroup && manualGroup.disabled) {
       const entry = buildRowEntry(grid, u0, u1, maxCol, 1, getValue, collector, null);
-      if (entry.label) result[entry.label] = entry.value;
+      assignEntry(result, entry);
       i++;
       continue;
     }
@@ -414,7 +432,7 @@ function buildSectionObject(grid, row0, row1, maxCol, getValue, manualGroups, co
       result[manualGroup.name] = groupValue;
       // 配列に混ぜられなかった名前付きの子（「その他」等）は、グループの外側で
       // 通常の単発行として出力する（データを失わないため）。
-      extraEntries.forEach(e => { result[e.label] = e.value; });
+      extraEntries.forEach(e => assignEntry(result, e));
       i = j;
       continue;
     }
@@ -446,15 +464,13 @@ function buildSectionObject(grid, row0, row1, maxCol, getValue, manualGroups, co
       // ための指定（groupChildrenToResultのコメント参照。既知バグの修正）。
       const { groupValue, extraEntries } = groupChildrenToResult(children, { requireMultiple: true });
       result[key] = groupValue;
-      extraEntries.forEach(e => { result[e.label] = e.value; });
+      extraEntries.forEach(e => assignEntry(result, e));
       i = j;
       continue;
     }
 
     const entry = buildRowEntry(grid, u0, u1, maxCol, 1, getValue, collector, null);
-    if (entry.label) {
-      result[entry.label] = entry.value;
-    }
+    assignEntry(result, entry);
     // ラベルなしの単発行（グループにも属さない）は、見出しどうしの間の余白行など
     // 意味を持たない行であることがほとんどのため、トップレベルには出力しない
     // （グループ内の無名行は上の自動検出／手動グループの分岐で別途、配列として正しく保持される）。
@@ -497,9 +513,12 @@ function buildRowEntry(grid, u0, u1, maxCol, fromCol, getValue, collector, conte
     if (rest.length === 0) return { label: null, value: null, hasRealData: false };
     if (rest.length === 1) {
       const valueCell = rest[0];
-      if (valueCell.hasText) {
-        // rest[0]自体がラベル（＝先頭セルに続けてもう1つラベルが並ぶだけの見出し行）
-        // なら、実データは無い。名前を選ぶ余地もないためcollectorには積まない。
+      if (valueCell.hasText && !valueCell.dbKey && !valueCell.renderType) {
+        // rest[0]自体がラベル（＝先頭セルに続けてもう1つラベルが並ぶだけの見出し行）である
+        // 可能性と、既に記入済みの本物のデータである可能性を、テキストの有無だけでは
+        // 区別できない（実データを持つセルもhasText=trueになるため）。明示的な手直し
+        // （項目名の設定・種類の変更のいずれか）が無い限りは実データなしとして扱う。
+        // 名前を選ぶ余地もないためcollectorには積まない。
         return { label: rowLabel, value: getValue(valueCell), hasRealData: false };
       }
       // 「1行1見出し1値」：JSONキーは行見出し文字がそのまま既定名になり曖昧さがないため、

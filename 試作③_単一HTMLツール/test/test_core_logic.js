@@ -39,19 +39,54 @@ runSuite('core_logic: 基本の行・セクション分解', () => {
     assertEqual(sections.map(s => s.title), ['Plan', 'Do']);
   });
 
-  test('単純なラベル→値の行がセクションオブジェクトに正しく入る', () => {
+  test('単純なラベル→値の行がセクションオブジェクトに正しく入る（値セルが空欄の場合）', () => {
     const ws = mockSheet({
-      maxRow: 3, maxCol: 2,
+      maxRow: 2, maxCol: 2,
       cells: [
         { row: 1, col: 1, v: 'Plan' },
-        { row: 2, col: 1, v: '事業名', fill: 'DDEBF7' },
-        { row: 2, col: 2, v: '広報広聴事業' }, // 記入済みの値
-        { row: 3, col: 1, v: '担当課', fill: 'DDEBF7' },
-        // 3行目のB列は空欄の入力セル
+        { row: 2, col: 1, v: '担当課', fill: 'DDEBF7' },
+        // 2行目のB列は空欄の入力セル
       ],
     });
     const { data } = extract(ws);
-    assertEqual(data['Plan'], { 事業名: '広報広聴事業', 担当課: '' });
+    assertEqual(data['Plan'], { 担当課: '' });
+  });
+
+  // 値セル自身がテキストを持つ場合（B2に既に「広報広聴事業」という記入済みの値がある）は、
+  // 「もう1つのラベルが並んでいるだけの見出し行」（判定／判定理由のようなパターン）との
+  // 区別がテキストの有無だけでは付かない。明示的な手直し（項目名の設定・種類の変更）が
+  // 無い限りは実データなしとして扱い、出力から除外する（既知の限界。buildRowEntry参照）。
+  test('値セルにテキストがあっても、明示的な手直しが無ければ実データとして扱わない（判定／判定理由問題の対策）', () => {
+    const ws = mockSheet({
+      maxRow: 2, maxCol: 2,
+      cells: [
+        { row: 1, col: 1, v: 'Plan' },
+        { row: 2, col: 1, v: '事業名', fill: 'DDEBF7' },
+        { row: 2, col: 2, v: '広報広聴事業' }, // 記入済みの値 or 隣接するラベルの残骸か区別不能
+      ],
+    });
+    const { data } = extract(ws);
+    assertEqual(data['Plan'], {}, '明示的な手直しが無い限り出力しない');
+  });
+
+  test('値セルにテキストがあっても、STEP2で明示的に種類を設定すれば実データとして出力される', () => {
+    const ws = mockSheet({
+      maxRow: 2, maxCol: 2,
+      cells: [
+        { row: 1, col: 1, v: 'Plan' },
+        { row: 2, col: 1, v: '事業名', fill: 'DDEBF7' },
+        { row: 2, col: 2, v: '広報広聴事業' },
+      ],
+    });
+    const { grid, sections, maxCol } = extract(ws);
+    const target = grid.get('2,2');
+    CoreLogic.applyOverrides(grid, { [CoreLogic.cellId(target)]: { kind: 'textarea' } }, CoreLogic.cellId);
+    // applyOverridesで入力欄に変更すると、Excel由来の元のテキストは破棄され
+    // （生成されるフォームでは実際に入力可能な空欄になるべきため）、hasTextもfalseになる。
+    // よってプレビュー用のdefaultGetValueでは値は空文字列になるが、重要なのは
+    // 「事業名」というキー自体がちゃんと出力に含まれるようになった点（除外されない）。
+    const out = CoreLogic.buildSectionObject(grid, sections[0].row0, sections[0].row1, maxCol, undefined, []);
+    assertEqual(out, { 事業名: '' }, '明示的な手直し後はキーが出力に含まれるべき（除外されなくなる）');
   });
 
   test('縦結合の見出し行（複数行にまたがる）は見出し扱いされない', () => {
@@ -446,8 +481,10 @@ runSuite('core_logic: findMappingTargets（項目名マッピング対象セル�
     });
     const { grid, sections, maxCol } = extract(ws);
     const out = CoreLogic.buildSectionObject(grid, sections[0].row0, sections[0].row1, maxCol, null, []);
-    assertEqual(Object.keys(out['事業評価']).length, 2, '衝突せず両方の値が出力されるはず');
-    assertEqual(out['事業評価']['区分'] !== undefined, true);
+    // 複数値を持つ行は「文脈_項目名」の形にフラット化されるため、トップレベルの
+    // キー数で衝突の有無を確認する（本来は「事業評価」に入れ子だったもの）。
+    assertEqual(Object.keys(out).length, 2, '衝突せず両方の値が出力されるはず');
+    assertEqual(out['事業評価_区分'] !== undefined, true);
 
     const { singles } = CoreLogic.findMappingTargets(grid, sections, maxCol, []);
     const c1 = singles.find(s => CoreLogic.cellRef(s.cells[0]) === 'C1');

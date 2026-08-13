@@ -934,7 +934,11 @@ function buildPreviewTables(output) {
     if (simpleRows.length > 0) {
       const wrap = el('div', { class: 'preview-table-wrap' });
       const table = el('table', { class: 'preview-table' });
-      table.appendChild(el('thead', {}, [el('tr', {}, [el('th', { text: '項目名' }), el('th', { text: '値／セル' })])]));
+      // 「単独の入力欄」のマッピング表では「文脈」列と「項目名」列を分けて表示しているが、
+      // こちらは1本の文字列に結合して見せる設計（親子関係を持つ行は「文脈 > 項目名」の形）
+      // なので、見出しもその実態に合わせる（結合しない行＝文脈が無い行もあるが、その場合は
+      // 単に項目名だけが入るので見出しとして矛盾はしない）。
+      table.appendChild(el('thead', {}, [el('tr', {}, [el('th', { text: '文脈 > 項目名' }), el('th', { text: '値／セル' })])]));
       const tbody = el('tbody');
       simpleRows.forEach(([k, v]) => {
         tbody.appendChild(el('tr', {}, [el('td', { text: k }), el('td', { text: v })]));
@@ -1052,7 +1056,11 @@ function buildMappingBlock(title, noteText, targets) {
     // その文字列、無ければcolN。フォールバックはグループの代表列番号／単独セルの列番号。
     const fallbackCol = target.kind === 'group' ? target.col : target.cells[0].col;
     const autoName = target.autoName || ('col' + fallbackCol);
-    const placeholder = mixed ? `${autoName} のまま（列内で項目名が不統一）` : `${autoName} のまま`;
+    // 空欄のまま保存した場合に実際に使われる項目名をそのまま見せる（「〜のまま」という
+    // 説明文言を付けると、あたかも別の名前が付くかのように誤読されるため、実際に
+    // autoNameを入力したときと同じ見た目にする）。mixedは「空欄のままだと列内の行ごとに
+    // 既存のバラバラな名前が残る」という別の状態なので、autoName単体では表現しきれず注記を残す。
+    const placeholder = mixed ? `例: ${autoName}（列内で項目名が不統一。空欄のままだと行ごとに既存の名前が残ります）` : autoName;
     const input = el('input', { type: 'text', id: mappingInputId(target), value: currentName, placeholder });
     input.dataset.initial = currentName;
     // 空欄のまま何もしない状態と見分けが付くよう、行自体にも印を付ける

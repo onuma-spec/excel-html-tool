@@ -357,7 +357,8 @@ function buildSampleData(dom, values) {
       const input = win.document.getElementById(win.CoreLogic.cellId(c3));
       input.value = 'テスト太郎';
       const data = win.__app.collectData();
-      assertEqual(data['シート']['申込日']['col3'], 'テスト太郎');
+      // 複数値行は「文脈_項目名」の形にフラット化される（core_logic.jsのassignEntry参照）。
+      assertEqual(data['シート']['申込日_col3'], 'テスト太郎');
 
       input.value = '';
       win.__app.loadDataIntoGrid(data);
@@ -1004,7 +1005,7 @@ function buildSampleData(dom, values) {
       const record = win.__app.REVIEW.records[0];
       assertEqual(record.displayValues[c3id], '事業A（詳細画面で修正）');
       assertEqual(record.reviewValues[c4id], '詳細画面から入力したレビュー結果');
-      assertEqual(record.data['シート']['申込日']['col3'], '事業A（詳細画面で修正）', 'record.data自体も更新されるはず');
+      assertEqual(record.data['シート']['申込日_col3'], '事業A（詳細画面で修正）', 'record.data自体も更新されるはず');
       assertTrue(win.document.getElementById('status').textContent.includes('保存しました'));
     });
 
@@ -1034,8 +1035,8 @@ function buildSampleData(dom, values) {
       const record = win.__app.REVIEW.records[0];
       record.reviewValues[c4id] = 'レビュー結果';
       const merged = win.__app.mergedDataForExport(record);
-      assertEqual(merged['シート']['申込日']['col3'], '事業A', '所管部署の元データは維持されるはず');
-      assertEqual(merged['シート']['申込日']['col4'], 'レビュー結果', 'レビュー欄の現在値がマージされるはず');
+      assertEqual(merged['シート']['申込日_col3'], '事業A', '所管部署の元データは維持されるはず');
+      assertEqual(merged['シート']['申込日_col4'], 'レビュー結果', 'レビュー欄の現在値がマージされるはず');
     });
 
     await testAsync('buildExportFileNameForRecordは、fileNameFieldsの値（displayValues経由）を使ってファイル名を組み立てる', async () => {

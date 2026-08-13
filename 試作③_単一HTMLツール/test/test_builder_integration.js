@@ -246,7 +246,8 @@ function setModalInput(win, id, value) {
       const target = CURRENT.grid.get('3,4');
       assertTrue(target.isFormula, '手直し後、このセルはisFormula=trueになっているべき');
       const out = win.CoreLogic.buildSectionObject(CURRENT.grid, CURRENT.sections[0].row0, CURRENT.sections[0].row1, CURRENT.maxCol, null, CURRENT.manualGroups);
-      assertFalse('col4' in out['申込日'], '数式化したセルは値として出力されないはず');
+      // 複数値行は「文脈_項目名」の形にフラット化される（core_logic.jsのassignEntry参照）。
+      assertFalse('申込日_col4' in out, '数式化したセルは値として出力されないはず');
     });
 
     await testAsync('プルダウン種類は改行・カンマ混在の選択肢テキストを分割して保持し、選択肢入力後に即確定する', async () => {
@@ -295,7 +296,7 @@ function setModalInput(win, id, value) {
       const firstItem = items[0];
       assertEqual(firstItem.querySelector('.mapping-ref').textContent, 'C3');
       assertEqual(firstItem.querySelector('.mapping-context').textContent, '申込日');
-      assertEqual(firstItem.querySelector('input').placeholder, 'col3 のまま');
+      assertEqual(firstItem.querySelector('input').placeholder, 'col3');
     });
 
     await testAsync('単独ブロックで名前を打ち込み保存すると反映され、触らなかった欄は変化しない（タッチ検知）', async () => {
@@ -314,9 +315,12 @@ function setModalInput(win, id, value) {
 
       const { CURRENT } = win.__app;
       const out = win.CoreLogic.buildSectionObject(CURRENT.grid, CURRENT.sections[0].row0, CURRENT.sections[0].row1, CURRENT.maxCol, null, CURRENT.manualGroups);
-      assertEqual(out['申込日']['moushikomibi_memo'], '');
-      assertFalse('col3' in out['申込日'], 'col3という自動名はもう使われないはず');
-      assertTrue('col4' in out['申込日'], '触っていない欄（D3）は自動名colNを維持するはず');
+      // 複数値行は「文脈_項目名」の形にフラット化される（core_logic.jsのassignEntry参照）。
+      // dbKeyで改名した場合も文脈の接頭辞は付ける（ユーザー自身が別の行と同じ名前を
+      // 誤って選んでしまった場合の衝突も防げるため）。
+      assertEqual(out['申込日_moushikomibi_memo'], '');
+      assertFalse('申込日_col3' in out, 'col3という自動名はもう使われないはず');
+      assertTrue('申込日_col4' in out, '触っていない欄（D3）は自動名colNを維持するはず');
 
       // 触らなかった欄については、保存操作全体を通じてOVERRIDESに新規エントリが増えていないこと
       const d3id = win.CoreLogic.cellId(win.__app.CURRENT.grid.get('3,4'));

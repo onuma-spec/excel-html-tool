@@ -325,10 +325,7 @@ function fillSection(grid, row0, row1, maxCol, secData, manualGroups) {
     // 自動グループ化の解除：グループ化せず、このユニットだけ通常の単発行として扱う
     // （core_logic.js の disabled 早期リターンと対称）。
     if (manualGroup && manualGroup.disabled) {
-      // labelOfRowではなくbuildRowEntryを使う理由はrenderSectionFromData側の同種の
-      // 呼び出しと同じ（「1行1見出し1値」がdbKeyで改名されている場合に対応するため）。
-      const label = CoreLogic.buildRowEntry(grid, u0, u1, maxCol, 1).label;
-      if (label && secData[label] !== undefined) fillRow(grid, u0, maxCol, 1, secData[label]);
+      fillTopLevelEntry(grid, u0, u1, maxCol, 1, secData);
       i++;
       continue;
     }
@@ -360,15 +357,27 @@ function fillSection(grid, row0, row1, maxCol, secData, manualGroups) {
       continue;
     }
 
-    // labelOfRowではなくbuildRowEntryを使う：「1行1見出し1値」の行が
-    // dbKeyで改名されている場合、出力キーはrowLabelではなくdbKeyになる
-    // （core_logic.jsのbuildRowEntry参照）。単純にA列の見出し文字だけを見る
-    // labelOfRowのままだと、改名後のキーでsecDataを探せず値が読み込めなくなる。
-    const label = CoreLogic.buildRowEntry(grid, u0, u1, maxCol, 1).label;
-    if (label && secData[label] !== undefined) {
-      fillRow(grid, u0, maxCol, 1, secData[label]);
-    }
+    fillTopLevelEntry(grid, u0, u1, maxCol, 1, secData);
     i++;
+  }
+}
+
+// トップレベルの単発行（グループに属さない行）をsecDataから読み込む。
+// core_logic.jsのassignEntryと対称の実装：
+// - hasRealData=falseの行（ラベル同士が隣接する見出しの残骸で、明示的な手直しもない行）
+//   は書き出し側がそもそも出力していないため、読み込んでも復元すべき値が無くスキップする。
+// - 複数値を持つ行は書き出し側で「文脈_項目名」の形にフラット化されているため、
+//   nested dictとしてではなくsecData全体＋キー接頭辞（行見出し）としてfillRowへ渡す。
+// - 「1行1見出し1値」の行がdbKeyで改名されている場合、出力キーはrowLabelではなく
+//   dbKeyになる（core_logic.jsのbuildRowEntry参照）。単純にA列の見出し文字だけを見る
+//   簡易版だと、改名後のキーでsecDataを探せず値が読み込めなくなる。
+function fillTopLevelEntry(grid, u0, u1, maxCol, fromCol, secData) {
+  const entry = CoreLogic.buildRowEntry(grid, u0, u1, maxCol, fromCol);
+  if (!entry.label || !entry.hasRealData) return;
+  if (entry.value && typeof entry.value === 'object' && !Array.isArray(entry.value)) {
+    fillRow(grid, u0, maxCol, fromCol, secData, entry.label);
+  } else if (secData[entry.label] !== undefined) {
+    fillRow(grid, u0, maxCol, fromCol, secData[entry.label]);
   }
 }
 
@@ -416,7 +425,12 @@ function fillGroupChildren(grid, maxCol, childUnits, groupVal, fromCol, secData,
   });
 }
 
-function fillRow(grid, r0, maxCol, fromCol, rowVal) {
+// keyPrefix（省略可）：core_logic.jsのassignEntryがトップレベルの複数値行を
+// 「文脈_項目名」にフラット化しているのを読み戻すための接頭辞。渡された場合、
+// rowValは行専用のnested dictではなくsecData全体（フラットなまま）として扱い、
+// 各セルは`${keyPrefix}_${ローカルキー}`で引く。グループの子レコード（元々nested dict
+// のまま、フラット化していない）を読むfillGroupChildren経由の呼び出しでは渡さない。
+function fillRow(grid, r0, maxCol, fromCol, rowVal, keyPrefix) {
   if (rowVal === undefined || rowVal === null) return;
   const cells = [];
   const seen = new Set();
@@ -437,8 +451,11 @@ function fillRow(grid, r0, maxCol, fromCol, rowVal) {
     let precedingLabel = null;
     valueCells.forEach(c => {
       if (c.hasText) { precedingLabel = String(c.value).replace(/\s+/g, ''); return; }
-      const v = rowVal[CoreLogic.defaultKeyFor(c, precedingLabel)];
+      const localKey = CoreLogic.defaultKeyFor(c, precedingLabel);
+      const fullKey = keyPrefix ? (keyPrefix + '_' + localKey) : localKey;
+      const v = rowVal[fullKey];
       if (v !== undefined) setDomValue(c, v);
+      precedingLabel = null;
     });
   } else if (valueCells.length === 1) {
     setDomValue(valueCells[0], rowVal);

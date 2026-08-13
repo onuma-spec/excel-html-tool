@@ -631,6 +631,24 @@ function groupChildrenToResult(children, opts) {
 // 記録したい場合に配列を渡す（findMappingTargets専用）。渡すと、defaultKeyFor()による
 // 自動命名（colN）が使われたセルの{cell, rowLabel, groupLabel}がここに積まれる。
 // 通常のJSON書き出し（collector省略）には一切影響しない。
+// 単発行のentryをresultへ反映する。hasRealData=falseは出力しない
+// （ラベル同士が隣接する見出し行の残骸を、明示的な手直しなしでは実データとして
+// 扱わない。buildRowEntryのコメント参照）。
+// 複数値を持つ行（value がプレーンオブジェクト）は入れ子にせず「文脈_項目名」の形に
+// フラット化する。文脈だけを親キーにした入れ子だと、列位置由来の自動名（colN）が
+// 他の行の自動名と衝突しやすい（同じ列番号は何十行にもわたって繰り返し出現するため）。
+// フラット化すれば文脈自体がキーの一部になり、天然の名前空間として機能する。
+function assignEntry(result, entry) {
+  if (!entry.label || !entry.hasRealData) return;
+  if (entry.value && typeof entry.value === 'object' && !Array.isArray(entry.value)) {
+    Object.keys(entry.value).forEach((subKey) => {
+      result[entry.label + '_' + subKey] = entry.value[subKey];
+    });
+  } else {
+    result[entry.label] = entry.value;
+  }
+}
+
 function buildSectionObject(grid, row0, row1, maxCol, getValue, manualGroups, collector) {
   getValue = getValue || defaultGetValue;
   const units = buildUnits(grid, row0, row1, maxCol);
@@ -650,7 +668,7 @@ function buildSectionObject(grid, row0, row1, maxCol, getValue, manualGroups, co
     // すれば十分。自動検出の判定自体には手を加えない）。
     if (manualGroup && manualGroup.disabled) {
       const entry = buildRowEntry(grid, u0, u1, maxCol, 1, getValue, collector, null);
-      if (entry.label) result[entry.label] = entry.value;
+      assignEntry(result, entry);
       i++;
       continue;
     }
@@ -665,7 +683,7 @@ function buildSectionObject(grid, row0, row1, maxCol, getValue, manualGroups, co
       result[manualGroup.name] = groupValue;
       // 配列に混ぜられなかった名前付きの子（「その他」等）は、グループの外側で
       // 通常の単発行として出力する（データを失わないため）。
-      extraEntries.forEach(e => { result[e.label] = e.value; });
+      extraEntries.forEach(e => assignEntry(result, e));
       i = j;
       continue;
     }
@@ -697,15 +715,13 @@ function buildSectionObject(grid, row0, row1, maxCol, getValue, manualGroups, co
       // ための指定（groupChildrenToResultのコメント参照。既知バグの修正）。
       const { groupValue, extraEntries } = groupChildrenToResult(children, { requireMultiple: true });
       result[key] = groupValue;
-      extraEntries.forEach(e => { result[e.label] = e.value; });
+      extraEntries.forEach(e => assignEntry(result, e));
       i = j;
       continue;
     }
 
     const entry = buildRowEntry(grid, u0, u1, maxCol, 1, getValue, collector, null);
-    if (entry.label) {
-      result[entry.label] = entry.value;
-    }
+    assignEntry(result, entry);
     // ラベルなしの単発行（グループにも属さない）は、見出しどうしの間の余白行など
     // 意味を持たない行であることがほとんどのため、トップレベルには出力しない
     // （グループ内の無名行は上の自動検出／手動グループの分岐で別途、配列として正しく保持される）。
@@ -748,9 +764,12 @@ function buildRowEntry(grid, u0, u1, maxCol, fromCol, getValue, collector, conte
     if (rest.length === 0) return { label: null, value: null, hasRealData: false };
     if (rest.length === 1) {
       const valueCell = rest[0];
-      if (valueCell.hasText) {
-        // rest[0]自体がラベル（＝先頭セルに続けてもう1つラベルが並ぶだけの見出し行）
-        // なら、実データは無い。名前を選ぶ余地もないためcollectorには積まない。
+      if (valueCell.hasText && !valueCell.dbKey && !valueCell.renderType) {
+        // rest[0]自体がラベル（＝先頭セルに続けてもう1つラベルが並ぶだけの見出し行）である
+        // 可能性と、既に記入済みの本物のデータである可能性を、テキストの有無だけでは
+        // 区別できない（実データを持つセルもhasText=trueになるため）。明示的な手直し
+        // （項目名の設定・種類の変更のいずれか）が無い限りは実データなしとして扱う。
+        // 名前を選ぶ余地もないためcollectorには積まない。
         return { label: rowLabel, value: getValue(valueCell), hasRealData: false };
       }
       // 「1行1見出し1値」：JSONキーは行見出し文字がそのまま既定名になり曖昧さがないため、
@@ -1262,10 +1281,7 @@ function fillSection(grid, row0, row1, maxCol, secData, manualGroups) {
     // 自動グループ化の解除：グループ化せず、このユニットだけ通常の単発行として扱う
     // （core_logic.js の disabled 早期リターンと対称）。
     if (manualGroup && manualGroup.disabled) {
-      // labelOfRowではなくbuildRowEntryを使う理由はrenderSectionFromData側の同種の
-      // 呼び出しと同じ（「1行1見出し1値」がdbKeyで改名されている場合に対応するため）。
-      const label = CoreLogic.buildRowEntry(grid, u0, u1, maxCol, 1).label;
-      if (label && secData[label] !== undefined) fillRow(grid, u0, maxCol, 1, secData[label]);
+      fillTopLevelEntry(grid, u0, u1, maxCol, 1, secData);
       i++;
       continue;
     }
@@ -1297,15 +1313,27 @@ function fillSection(grid, row0, row1, maxCol, secData, manualGroups) {
       continue;
     }
 
-    // labelOfRowではなくbuildRowEntryを使う：「1行1見出し1値」の行が
-    // dbKeyで改名されている場合、出力キーはrowLabelではなくdbKeyになる
-    // （core_logic.jsのbuildRowEntry参照）。単純にA列の見出し文字だけを見る
-    // labelOfRowのままだと、改名後のキーでsecDataを探せず値が読み込めなくなる。
-    const label = CoreLogic.buildRowEntry(grid, u0, u1, maxCol, 1).label;
-    if (label && secData[label] !== undefined) {
-      fillRow(grid, u0, maxCol, 1, secData[label]);
-    }
+    fillTopLevelEntry(grid, u0, u1, maxCol, 1, secData);
     i++;
+  }
+}
+
+// トップレベルの単発行（グループに属さない行）をsecDataから読み込む。
+// core_logic.jsのassignEntryと対称の実装：
+// - hasRealData=falseの行（ラベル同士が隣接する見出しの残骸で、明示的な手直しもない行）
+//   は書き出し側がそもそも出力していないため、読み込んでも復元すべき値が無くスキップする。
+// - 複数値を持つ行は書き出し側で「文脈_項目名」の形にフラット化されているため、
+//   nested dictとしてではなくsecData全体＋キー接頭辞（行見出し）としてfillRowへ渡す。
+// - 「1行1見出し1値」の行がdbKeyで改名されている場合、出力キーはrowLabelではなく
+//   dbKeyになる（core_logic.jsのbuildRowEntry参照）。単純にA列の見出し文字だけを見る
+//   簡易版だと、改名後のキーでsecDataを探せず値が読み込めなくなる。
+function fillTopLevelEntry(grid, u0, u1, maxCol, fromCol, secData) {
+  const entry = CoreLogic.buildRowEntry(grid, u0, u1, maxCol, fromCol);
+  if (!entry.label || !entry.hasRealData) return;
+  if (entry.value && typeof entry.value === 'object' && !Array.isArray(entry.value)) {
+    fillRow(grid, u0, maxCol, fromCol, secData, entry.label);
+  } else if (secData[entry.label] !== undefined) {
+    fillRow(grid, u0, maxCol, fromCol, secData[entry.label]);
   }
 }
 
@@ -1353,7 +1381,12 @@ function fillGroupChildren(grid, maxCol, childUnits, groupVal, fromCol, secData,
   });
 }
 
-function fillRow(grid, r0, maxCol, fromCol, rowVal) {
+// keyPrefix（省略可）：core_logic.jsのassignEntryがトップレベルの複数値行を
+// 「文脈_項目名」にフラット化しているのを読み戻すための接頭辞。渡された場合、
+// rowValは行専用のnested dictではなくsecData全体（フラットなまま）として扱い、
+// 各セルは`${keyPrefix}_${ローカルキー}`で引く。グループの子レコード（元々nested dict
+// のまま、フラット化していない）を読むfillGroupChildren経由の呼び出しでは渡さない。
+function fillRow(grid, r0, maxCol, fromCol, rowVal, keyPrefix) {
   if (rowVal === undefined || rowVal === null) return;
   const cells = [];
   const seen = new Set();
@@ -1374,8 +1407,11 @@ function fillRow(grid, r0, maxCol, fromCol, rowVal) {
     let precedingLabel = null;
     valueCells.forEach(c => {
       if (c.hasText) { precedingLabel = String(c.value).replace(/\s+/g, ''); return; }
-      const v = rowVal[CoreLogic.defaultKeyFor(c, precedingLabel)];
+      const localKey = CoreLogic.defaultKeyFor(c, precedingLabel);
+      const fullKey = keyPrefix ? (keyPrefix + '_' + localKey) : localKey;
+      const v = rowVal[fullKey];
       if (v !== undefined) setDomValue(c, v);
+      precedingLabel = null;
     });
   } else if (valueCells.length === 1) {
     setDomValue(valueCells[0], rowVal);
