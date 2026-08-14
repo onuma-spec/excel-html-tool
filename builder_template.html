@@ -50,6 +50,30 @@
   .step-detail ul{margin:6px 0 0; padding-left:1.4em; line-height:1.7; color:var(--sub);}
   .step-detail li{margin-bottom:2px;}
 
+  /* 最初に表示する導入画面（全体像の図＋開始ボタン）。#screen-tool（既存の.wrap一式）は
+     初期状態で非表示にし、ボタン押下でそちらに切り替える。 */
+  #screen-welcome{max-width:640px; margin:0 auto; padding:32px 16px 40px; text-align:center;}
+  #screen-welcome h1{font-size:1.3rem; margin:0 0 10px;}
+  #screen-welcome > p.lead{text-align:left; margin:0 0 20px;}
+  #btn-welcome-start{display:block; margin:20px auto 0; font-size:.95rem; padding:11px 28px;}
+  #screen-welcome .card{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin-top:20px; text-align:left;}
+  #screen-welcome .card h2{font-size:1rem; margin:0 0 8px;}
+  #screen-welcome .card p.note{font-size:.85rem; color:var(--sub); line-height:1.7; margin:0;}
+  #btn-back-welcome{background:none; border:none; color:var(--accent); text-decoration:underline; padding:0; font-size:.8rem; margin-bottom:10px; cursor:pointer;}
+  .flow-diagram{display:flex; flex-direction:column; align-items:center; width:100%; margin:0 auto;}
+  .flow-box{width:100%; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; text-align:center; font-size:.85rem; font-weight:600; line-height:1.5;}
+  .flow-box-tool{background:var(--accent-bg); border-color:var(--accent); color:var(--accent);}
+  .flow-sub{display:block; margin-top:4px; font-size:.72rem; font-weight:400; color:var(--sub);}
+  .flow-arrow{padding:5px 4px; font-size:.75rem; color:var(--sub); text-align:center; line-height:1.4;}
+  .flow-scope{width:100%; border:2px dashed var(--accent); border-radius:12px; padding:26px 16px 16px; position:relative; margin-top:4px; display:flex; flex-direction:column; align-items:center;}
+  .flow-scope-label{position:absolute; top:-11px; left:14px; background:var(--bg); padding:0 8px; font-size:.72rem; font-weight:700; color:var(--accent);}
+  .flow-grid{width:100%; display:grid; grid-template-columns:1fr 50px 1fr; align-items:center;}
+  .flow-grid .span-all{grid-column:1 / -1;}
+  .flow-grid .col-left{grid-column:1;}
+  .flow-grid .col-right{grid-column:3;}
+  .flow-arrow-h{grid-column:2; font-size:.68rem; color:var(--sub); text-align:center; line-height:1.3;}
+  .flow-note{margin-top:12px; font-size:.7rem; color:var(--sub); text-align:center;}
+
   #grid-root{overflow-x:auto; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px;}
   table.excel-grid{border-collapse:collapse; table-layout:fixed;}
   table.excel-grid td{border:1px solid #b9b2a0; padding:0; vertical-align:middle; overflow:hidden; position:relative;}
@@ -194,9 +218,69 @@
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>Excelフォーム変換ツール</h1>
+<div id="screen-welcome">
+  <h1>🗂️ Excelフォーム変換ツール</h1>
   <p class="lead">業務で使っているExcel様式（.xlsx）を読み込み、入力フォーム（.html）と、複数件のデータをまとめる集約ツール（.html）を生成します。</p>
+
+  <div class="flow-diagram">
+    <div class="flow-box">📊 既存のExcel様式<span class="flow-sub">各部署・各業務で個別に運用</span></div>
+    <div class="flow-arrow">↓ 読み込み</div>
+
+    <div class="flow-scope">
+      <span class="flow-scope-label">本ツールの対象範囲</span>
+
+      <div class="flow-grid">
+        <div class="flow-box flow-box-tool span-all">🗂️ ① Excelフォーム変換ツール（このツール）<span class="flow-sub">様式の設計者が使う</span></div>
+
+        <div class="flow-arrow col-left">↓<br>書き出す</div>
+        <div class="flow-arrow-h"></div>
+        <div class="flow-arrow col-right">↓<br>書き出す</div>
+
+        <div class="flow-box col-left">📝 ② 入力フォーム<span class="flow-sub">各部署の職員が入力</span></div>
+        <div class="flow-arrow-h">→<br>JSON</div>
+        <div class="flow-box col-right">📥 ③ 集約ツール<span class="flow-sub">事務局がまとめて読み込み</span></div>
+
+        <div class="flow-arrow col-left"></div>
+        <div class="flow-arrow-h"></div>
+        <div class="flow-arrow col-right">↓<br>書き出す</div>
+
+        <div class="flow-box span-all">🌐 ④ 閲覧ページ／集約データ<span class="flow-sub">誰でも見られる公開HTML・JSON・CSV</span></div>
+      </div>
+    </div>
+
+    <div class="flow-note">4ファイルすべて単一HTML・ブラウザ完結・外部通信ゼロ</div>
+  </div>
+
+  <div class="card">
+    <h2>制作者からのメッセージ</h2>
+    <p class="note">
+      エクセルのフォームを使った実務ありますよね。どんな感じですか？<br>
+      ・印刷して紙で運用<br>
+      ・エクセルで回収して、別途取りまとめ<br>
+      ・各部署に配布して、管理は丸投げ
+      <br><br>
+      本ツールを使うと、<br>
+      ・ブラウザで運用するので、紙の保存を無くせます<br>
+      ・JSONで回収するので、決めた型に自動で取りまとめできます<br>
+      ・件数が増えても、JSONを所定位置に保存するだけで回収できます
+      <br><br>
+      さらに、集まったデータは検索しながら一括管理できるようになります。
+      <br><br>
+      これらを単一HTML・ブラウザ完結・外部通信ゼロで実現しました。<br>
+      業務効率の改善につながると思います。
+      <br><br>
+      自己責任が大前提ですが、無料で自由にお使い頂けます。
+      <br><br>
+      安くて手軽なツールを探している方、ぜひお試しください。
+    </p>
+  </div>
+
+  <button id="btn-welcome-start">🚀 始める</button>
+</div>
+
+<div class="wrap" id="screen-tool" style="display:none">
+  <button id="btn-back-welcome">← 戻る</button>
+  <h1>Excelフォーム変換ツール</h1>
   <p class="lead lead-features-title">本ツールの特徴</p>
   <ul class="lead-list">
     <li>通信は一切行わず、ブラウザの中だけで完結します</li>
@@ -239,6 +323,16 @@
   <button class="secondary" id="btn-selection-clear">選択解除</button>
 </div>
 
+<script>
+document.getElementById('btn-welcome-start').addEventListener('click', () => {
+  document.getElementById('screen-welcome').style.display = 'none';
+  document.getElementById('screen-tool').style.display = '';
+});
+document.getElementById('btn-back-welcome').addEventListener('click', () => {
+  document.getElementById('screen-tool').style.display = 'none';
+  document.getElementById('screen-welcome').style.display = '';
+});
+</script>
 <script>
 /* __SHEETJS__ */
 </script>
