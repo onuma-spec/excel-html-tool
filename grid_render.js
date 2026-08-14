@@ -1,4 +1,4 @@
-// ビルダー（excel_form_builder.html）・生成される入力フォームの両方で共有する
+// ビルダー（index.html）・生成される入力フォームの両方で共有する
 // 「グリッド描画・データ収集/復元・数式再計算・貼り付け」ロジック。
 // core_logic.js（CoreLogic.cellId／colNumToLetter／buildSectionObject）に依存する。
 //

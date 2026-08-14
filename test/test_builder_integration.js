@@ -1,4 +1,4 @@
-// excel_form_builder.html（ツール1）の結合テスト。
+// index.html（ツール1）の結合テスト。
 // core_logic.js／grid_render.js／vendor/xlsx.core.min.js／builder_app.js を
 // 実際のHTMLページと同じ形（インラインscript）でjsdom内に読み込み、
 // window.__app（builder_app.jsが公開するデバッグ用API）越しに実際のファイル読込・

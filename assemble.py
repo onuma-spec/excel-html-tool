@@ -15,7 +15,7 @@
    → このテキストをJS文字列としてbuilder_app.jsに埋め込む
 4. builder_template.html + vendor/xlsx.core.min.js + core_logic.js + grid_render.js
    + （1・3のテンプレートを埋め込み済みの）builder_app.js
-   → excel_form_builder.html（ツール1・配布不要、開発者/管轄部署が使う）
+   → index.html（ツール1・配布不要、開発者/管轄部署が使う）
 
 ツール2（入力フォーム）・ツール3（集約ツール）・ツール4（住民公開ページ）は、いずれも
 上流のツールの「書き出す」ボタンが実行時に生成する。ビルド時にはファイルとして出力しない。
@@ -102,7 +102,7 @@ def main():
     aggregator_template_text = build_aggregator_template_text(viewer_template_text)
     builder_html = build_builder_html(filler_template_text, aggregator_template_text)
 
-    out_path = os.path.join(BASE, 'excel_form_builder.html')
+    out_path = os.path.join(BASE, 'index.html')
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write(builder_html)
     print('書き出し完了:', out_path, f'({os.path.getsize(out_path)/1024:.0f} KB)')

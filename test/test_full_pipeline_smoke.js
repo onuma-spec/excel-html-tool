@@ -1,5 +1,5 @@
 // フルパイプラインのスモークテスト：
-// 実際にビルド済みのexcel_form_builder.html（`python assemble.py`の成果物、リポジトリに
+// 実際にビルド済みのindex.html（`python assemble.py`の成果物、リポジトリに
 // コミットされているファイルそのもの）を読み込み、実Excel（simple_moshikomi.xlsx）→
 // ビルダー →「集約ツールを書き出す」→ 集約ツールに複数JSONを読み込ませ閲覧設定→
 // 「閲覧ページを書き出す」→ 閲覧ページで一覧・検索・詳細が動く、という
@@ -9,7 +9,7 @@
 // は各ファイルを直接インラインした簡易fixtureで検証しているが、こちらは
 // 「assemble.pyが実際に組み立てたファイル」を直接使うことで、テンプレート文字列注入の
 // 入れ子（filler/aggregator/viewerの3階層）に置換漏れ・二重宣言等が無いかを検出する。
-// このテストを実行する前に `python assemble.py` を実行し、excel_form_builder.html を
+// このテストを実行する前に `python assemble.py` を実行し、index.html を
 // 最新化しておくこと（builder_app.js等のソースを変更したら、まずassemble.pyを再実行する）。
 
 const path = require('path');
@@ -18,7 +18,7 @@ const { JSDOM } = require('jsdom');
 const { runSuiteAsync, testAsync, assertEqual, assertTrue, summary } = require('./assert_mini');
 
 const ROOT = path.join(__dirname, '..');
-const BUILDER_HTML_PATH = path.join(ROOT, 'excel_form_builder.html');
+const BUILDER_HTML_PATH = path.join(ROOT, 'index.html');
 const FIXTURE = path.join(ROOT, '実機確認', '公開テンプレ調達', 'simple_moshikomi.xlsx');
 
 function waitFor(predicate, timeoutMs, intervalMs) {
@@ -68,8 +68,8 @@ async function loadFixtureIntoBuilder(dom) {
 
 (async () => {
   await runSuiteAsync('フルパイプライン：Excel → ビルダー → 集約ツール → 閲覧ページ', async () => {
-    await testAsync('excel_form_builder.htmlが存在し、ビルド時プレースホルダーが置換済みである（実行前に python assemble.py が必要）', async () => {
-      assertTrue(fs.existsSync(BUILDER_HTML_PATH), 'excel_form_builder.htmlが見つかりません。先に `python assemble.py` を実行してください。');
+    await testAsync('index.htmlが存在し、ビルド時プレースホルダーが置換済みである（実行前に python assemble.py が必要）', async () => {
+      assertTrue(fs.existsSync(BUILDER_HTML_PATH), 'index.htmlが見つかりません。先に `python assemble.py` を実行してください。');
       const html = fs.readFileSync(BUILDER_HTML_PATH, 'utf8');
       // __STRUCTURE__・__FORM_TITLE__・__RECORDS__・__PUBLIC_CONFIG__・__VIEWER_TITLE__は
       // 実行時（各ツールの「書き出す」操作）に埋め込まれる想定の実行時プレースホルダーであり、

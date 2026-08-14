@@ -18,7 +18,7 @@
 
 実際に使われる順に、誰が・何のために使うツールかをまとめます。①のみがリポジトリに実体として存在するファイルで、②③④は①・③が実行時に生成する成果物です（生成の仕組みは「開発者向け」参照）。
 
-### ① Excelフォーム変換ツール（`excel_form_builder.html`）
+### ① Excelフォーム変換ツール（`index.html`）
 **使う人：対象業務の管轄部署・事務局（フォームを設計する人）**
 
 既存のExcel様式を読み込み、次の5ステップでフォームを設計します。
@@ -84,27 +84,27 @@ aggregator_template.html + core_logic.js + grid_render.js
 
 builder_template.html + vendor/xlsx.core.min.js + core_logic.js + grid_render.js
   + （②・③埋め込み済みの）builder_app.js
-  → excel_form_builder.html（①。リポジトリ上の唯一の成果物）
+  → index.html（①。リポジトリ上の唯一の成果物）
 ```
 
-このため、`.js`ファイルの中身は「そのファイルが対応するツールを実際に開いている間だけ」動きます。①`excel_form_builder.html`を開いている間、②③のコードはただの文字列としてページ内に存在しているだけで、実行はされません（②を開いた瞬間に初めて`filler_app.js`の中身が動き出す、という関係です）。
+このため、`.js`ファイルの中身は「そのファイルが対応するツールを実際に開いている間だけ」動きます。①`index.html`を開いている間、②③のコードはただの文字列としてページ内に存在しているだけで、実行はされません（②を開いた瞬間に初めて`filler_app.js`の中身が動き出す、という関係です）。
 
 | ファイル | 役割 | 実際にコードが動くタイミング |
 |---|---|---|
 | `assemble.py` | ビルドスクリプト | ツールの利用時には一切関与しない。開発者が①を作り直す時に手元で`python assemble.py`を1回実行するだけ |
-| `builder_template.html`<br>`builder_app.js` | ①フォームビルダーの骨格・ロジック | ①`excel_form_builder.html`を開いている間（STEP1〜5）ずっと動いている |
+| `builder_template.html`<br>`builder_app.js` | ①フォームビルダーの骨格・ロジック | ①`index.html`を開いている間（STEP1〜5）ずっと動いている |
 | `filler_template.html`<br>`filler_app.js` | ②入力フォームの骨格・ロジック | ②`{タイトル}_入力フォーム.html`を開いている間（新規入力／2次以降入力どちらのモードも）動いている。①を開いている間は埋め込み文字列として存在するだけで実行されない |
 | `aggregator_template.html`<br>`aggregator_app.js` | ③集約ツールの骨格・ロジック | ③`{タイトル}_集約ツール.html`を開いている間動いている。①の中では埋め込み文字列として存在するだけ |
 | `viewer_template.html`<br>`viewer_app.js` | ④閲覧ページの骨格・ロジック | ④`{タイトル}_閲覧ページ.html`を開いている間（一覧・検索画面／詳細画面とも）動いている。③の中では埋め込み文字列として存在するだけ |
 | `core_logic.js` | Excel/JSON構造の解析（セクション分割・自動/手動グループ化・書き出し前チェック等） | ①②③④すべてで動く。同じ内容が4つのHTMLそれぞれに複製・埋め込みされている |
 | `grid_render.js` | グリッド描画・貼り付け・印刷 | 同上、①②③④すべてで動く |
 | `vendor/xlsx.core.min.js`（SheetJS） | Excelファイルの読み込み | ①のSTEP1（Excelアップロード）でのみ使われる。②③④はExcelを直接扱わないため含まれない |
-| `excel_form_builder.html` | ビルド成果物 | 実際に配布・使用するのはこのファイル1つだけ |
+| `index.html` | ビルド成果物 | 実際に配布・使用するのはこのファイル1つだけ |
 | `test/` | 回帰テスト一式 | `npm test`で実行（ツール利用時には関与しない） |
 
 ## ビルド方法
 
-部品ファイル（`*_template.html`・`*_app.js`・`core_logic.js`・`grid_render.js`）を編集した場合は、`excel_form_builder.html` を再生成してください。
+部品ファイル（`*_template.html`・`*_app.js`・`core_logic.js`・`grid_render.js`）を編集した場合は、`index.html` を再生成してください。
 
 ```
 python assemble.py
