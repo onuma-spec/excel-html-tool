@@ -1,4 +1,4 @@
-// 住民公開ページ（ツール4・viewer_app.js）の結合テスト。
+// 閲覧ページ（ツール4・viewer_app.js）の結合テスト。
 // core_logic.js + grid_render.js + `const STRUCTURE/RECORDS/PUBLIC_CONFIG = {...};` +
 // viewer_app.js という、集約ツールが実際に書き出す構成でjsdomにページを作り、
 // window.__app（viewer_app.jsが公開するデバッグ用API）越しに検証する。
@@ -111,7 +111,7 @@ function defaultPublicConfig(structure, overrides) {
     aggregateFields: [{ label: '予算', unit: '千円', ids: [cellIdFor(structure, 3, 2)] }],
     showRecordCount: true,
     searchFields: [cellIdFor(structure, 1, 2)],
-    title: 'テスト公開ページ',
+    title: 'テスト閲覧ページ',
     description: 'テスト用の説明文です。',
     source: 'テスト様式（3件）を基に作成',
     updatedDate: '2026-08-12',
@@ -193,7 +193,7 @@ async function readyPage(structure, records, publicConfig, url) {
       const structure = buildSimpleStructure();
       const dom = await readyPage(structure, buildSampleRecords());
       const win = dom.window;
-      assertEqual(win.document.getElementById('viewer-title').textContent, 'テスト公開ページ');
+      assertEqual(win.document.getElementById('viewer-title').textContent, 'テスト閲覧ページ');
       assertEqual(win.document.getElementById('viewer-description').textContent, 'テスト用の説明文です。');
       assertTrue(win.document.getElementById('viewer-source').textContent.includes('テスト様式'));
       assertTrue(win.document.getElementById('viewer-updated').textContent.includes('2026-08-12'));
@@ -265,7 +265,7 @@ async function readyPage(structure, records, publicConfig, url) {
       assertTrue(ascFirst !== descFirst, '昇順と降順で先頭行が入れ替わるはず');
     });
 
-    await testAsync('「気になる事業だけ表示」をONにすると☑した行だけに絞り込まれる', async () => {
+    await testAsync('「気になるデータだけ表示」をONにすると☑した行だけに絞り込まれる', async () => {
       const structure = buildSimpleStructure();
       const dom = await readyPage(structure, buildSampleRecords());
       const win = dom.window;
@@ -368,7 +368,7 @@ async function readyPage(structure, records, publicConfig, url) {
       const input = win.document.getElementById(cellIdFor(structure, 1, 2));
       assertTrue(!!input, '本文グリッドにセルが描画されているはず');
       assertEqual(input.value, '広報広聴事業');
-      assertTrue(input.disabled, '住民公開ページの詳細は読み取り専用のはず');
+      assertTrue(input.disabled, '閲覧ページの詳細は読み取り専用のはず');
     });
 
     await testAsync('前へ／次へで、現在の絞り込み・並び替え順の中を移動できる', async () => {
@@ -448,7 +448,7 @@ async function readyPage(structure, records, publicConfig, url) {
       win.__app.cleanupBulkPrint();
     });
 
-    await testAsync('「気になる事業だけ表示」で絞り込んでからprintFilteredを呼ぶと、☑を付けた事業だけが表の行になる', async () => {
+    await testAsync('「気になるデータだけ表示」で絞り込んでからprintFilteredを呼ぶと、☑を付けた事業だけが表の行になる', async () => {
       const structure = buildSimpleStructure();
       const dom = await readyPage(structure, buildSampleRecords());
       const win = dom.window;
@@ -461,7 +461,7 @@ async function readyPage(structure, records, publicConfig, url) {
       win.__app.printFiltered();
       assertTrue(printed);
       const rows = win.document.querySelectorAll('#viewer-print-root table.viewer-print-list-table tbody tr');
-      assertEqual(rows.length, 2, '「気になる事業だけ表示」との組み合わせで☑2件だけが対象になるはず');
+      assertEqual(rows.length, 2, '「気になるデータだけ表示」との組み合わせで☑2件だけが対象になるはず');
       win.__app.cleanupBulkPrint();
     });
 

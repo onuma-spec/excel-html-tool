@@ -62,13 +62,13 @@
 <div class="wrap">
   <h1>__FORM_TITLE__ 集約ツール</h1>
   <p class="lead">
-    各部署から集まったJSONファイルを読み込み、住民公開用ページの設定を行って書き出します。<br>
+    各部署から集まったJSONファイルを読み込み、閲覧ページの設定を行って書き出します。<br>
     通信は一切行いません（ブラウザの中だけで完結します）。
   </p>
 
   <div id="export-dir-bar">
     <button class="secondary" id="btn-pick-export-dir">📁 書き出し先フォルダを指定する（Edge/Chrome）</button>
-    <span id="export-dir-status" class="hint">指定すると、以後の住民公開用ページの書き出しはダウンロードではなくこのフォルダへ直接保存されます。</span>
+    <span id="export-dir-status" class="hint">指定すると、以後の閲覧ページの書き出しはダウンロードではなくこのフォルダへ直接保存されます。</span>
   </div>
   <div id="status"></div>
 
@@ -83,7 +83,7 @@
   <div id="loaded-summary"></div>
   <div id="loaded-table-root"></div>
 
-  <p class="step-label">STEP2：住民公開設定</p>
+  <p class="step-label">STEP2：閲覧設定</p>
   <p class="hint" style="margin-top:-2px;">全事業のJSONを読み込み終えてから設定してください（件数を見ながら判断できるよう、出典・件数はここで確定します）。</p>
 
   <h2>① 一覧・詳細に表示する項目</h2>
@@ -115,11 +115,11 @@
 
   <p class="step-label">STEP3：書き出す</p>
   <div id="export-actions" class="action-bar">
-    <button id="btn-export-viewer">🌐 住民公開用ページを書き出す</button>
+    <button id="btn-export-viewer">🌐 閲覧ページを書き出す</button>
     <button class="secondary" id="btn-export-aggregated-json">📦 集約したJSONを書き出す</button>
     <button class="secondary" id="btn-export-aggregated-csv">📊 集約したCSVを書き出す</button>
   </div>
-  <p class="hint">読み込んだ全事業のデータをまとめて書き出します（住民公開ページとは別に、庁内での再利用・バックアップ・他ツールでの二次利用等にご利用いただけます）。JSONは元の構造（繰り返し行など）をそのまま保持、CSVは1事業＝1行の表形式（繰り返し行は「／」区切りで1セルにまとめます）。</p>
+  <p class="hint">読み込んだ全事業のデータをまとめて書き出します（閲覧ページとは別に、庁内での再利用・バックアップ・他ツールでの二次利用等にご利用いただけます）。JSONは元の構造（繰り返し行など）をそのまま保持、CSVは1事業＝1行の表形式（繰り返し行は「／」区切りで1セルにまとめます）。</p>
 
   <div id="grid-root"></div>
   <div id="agg-scratch-root"></div>

@@ -1,8 +1,8 @@
 // フルパイプラインのスモークテスト：
 // 実際にビルド済みのexcel_form_builder.html（`python assemble.py`の成果物、リポジトリに
 // コミットされているファイルそのもの）を読み込み、実Excel（simple_moshikomi.xlsx）→
-// ビルダー →「集約ツールを書き出す」→ 集約ツールに複数JSONを読み込ませ住民公開設定→
-// 「住民公開用ページを書き出す」→ 住民公開ページで一覧・検索・詳細が動く、という
+// ビルダー →「集約ツールを書き出す」→ 集約ツールに複数JSONを読み込ませ閲覧設定→
+// 「閲覧ページを書き出す」→ 閲覧ページで一覧・検索・詳細が動く、という
 // 4ツールの受け渡し全体を1本のテストで通す。
 //
 // 個々のツールの単体的な結合テスト（test_builder/filler/aggregator/viewer_integration.js）
@@ -67,7 +67,7 @@ async function loadFixtureIntoBuilder(dom) {
 }
 
 (async () => {
-  await runSuiteAsync('フルパイプライン：Excel → ビルダー → 集約ツール → 住民公開ページ', async () => {
+  await runSuiteAsync('フルパイプライン：Excel → ビルダー → 集約ツール → 閲覧ページ', async () => {
     await testAsync('excel_form_builder.htmlが存在し、ビルド時プレースホルダーが置換済みである（実行前に python assemble.py が必要）', async () => {
       assertTrue(fs.existsSync(BUILDER_HTML_PATH), 'excel_form_builder.htmlが見つかりません。先に `python assemble.py` を実行してください。');
       const html = fs.readFileSync(BUILDER_HTML_PATH, 'utf8');
@@ -93,7 +93,7 @@ async function loadFixtureIntoBuilder(dom) {
       assertTrue(!!capturedBlob, '集約ツールのBlobが捕捉できているはず');
       const aggregatorHtml = await readBlobAsText(builderWin, capturedBlob);
       // 集約ツール自身の`const STRUCTURE = ...;`は実体（読み込んだ様式のJSON）に
-      // 置き換わっているべき。ただし住民公開ページ（ツール4）用のVIEWER_TEMPLATEは
+      // 置き換わっているべき。ただし閲覧ページ（ツール4）用のVIEWER_TEMPLATEは
       // この時点ではまだ雛形のまま埋め込まれているのが正しい仕様で、そちらは
       // `const STRUCTURE = /* __STRUCTURE__ */;`という同一の未置換テキストを1つ内包し続ける
       // （doExportAsViewer実行時に置き換わる）ため、「残っていないこと」ではなく
@@ -106,7 +106,7 @@ async function loadFixtureIntoBuilder(dom) {
       assertTrue(aggWin.__app.candidateSingles().length > 0, '集約ツールが元の様式の入力欄候補を認識できているはず');
     });
 
-    await testAsync('集約ツールにJSONを読み込み住民公開設定をして書き出すと、一覧・検索・詳細が動く住民公開ページが得られる（4ツール通しの受け渡し）', async () => {
+    await testAsync('集約ツールにJSONを読み込み閲覧設定をして書き出すと、一覧・検索・詳細が動く閲覧ページが得られる（4ツール通しの受け渡し）', async () => {
       const builderDom = openHtmlPage(fs.readFileSync(BUILDER_HTML_PATH, 'utf8'));
       const builderWin = builderDom.window;
       await loadFixtureIntoBuilder(builderDom);
@@ -150,17 +150,17 @@ async function loadFixtureIntoBuilder(dom) {
       await aggWin.__app.handleFileInput(files);
       assertEqual(aggWin.__app.AGG.records.length, 3);
 
-      // 住民公開設定①表示項目に1件目の入力欄を選ぶ
+      // 閲覧設定①表示項目に1件目の入力欄を選ぶ
       aggWin.document.getElementById('cfgdisplay_' + firstKey).click();
-      aggWin.document.getElementById('cfg-title').value = 'パイプラインテスト公開ページ';
+      aggWin.document.getElementById('cfg-title').value = 'パイプラインテスト閲覧ページ';
       aggWin.document.getElementById('cfg-title').dispatchEvent(new aggWin.Event('input'));
 
       let viewerBlob = null;
       aggWin.URL.createObjectURL = (blob) => { viewerBlob = blob; return 'blob:mock'; };
       aggWin.__app.doExportAsViewer();
-      assertTrue(!!viewerBlob, '住民公開ページのBlobが捕捉できているはず');
+      assertTrue(!!viewerBlob, '閲覧ページのBlobが捕捉できているはず');
       const viewerHtml = await readBlobAsText(aggWin, viewerBlob);
-      assertTrue(viewerHtml.includes('<title>パイプラインテスト公開ページ</title>'));
+      assertTrue(viewerHtml.includes('<title>パイプラインテスト閲覧ページ</title>'));
 
       const viewerDom = openHtmlPage(viewerHtml);
       const viewerWin = viewerDom.window;

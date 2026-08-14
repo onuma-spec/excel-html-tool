@@ -1,12 +1,12 @@
 // 管理者用集約ツール（ツール3）側のロジック。
 // ビルダー（ツール1）が埋め込んだ STRUCTURE（値ではなく確定済みの構造）と、
-// VIEWER_TEMPLATE（住民公開ページの雛形テキスト、ビルド時にassemble.pyが埋め込む）を持つ。
-// 各部署が書き出したJSON（ツール2の出力）を複数読み込み、住民公開設定を行った上で、
+// VIEWER_TEMPLATE（閲覧ページの雛形テキスト、ビルド時にassemble.pyが埋め込む）を持つ。
+// 各部署が書き出したJSON（ツール2の出力）を複数読み込み、閲覧設定を行った上で、
 // STRUCTURE・読み込んだデータ・設定をVIEWER_TEMPLATEへ注入した単一HTMLを書き出す。
 
 let CURRENT_STATE = null; // STRUCTUREから復元したgrid/sections/maxCol等（filler_app.jsのbuildStateFromStructureと同じ形）
 
-// ツール4（住民公開ページ）のHTML全文。ビルド時（assemble.py）に埋め込まれる。
+// ツール4（閲覧ページ）のHTML全文。ビルド時（assemble.py）に埋め込まれる。
 // 「__STRUCTURE__」「__RECORDS__」「__PUBLIC_CONFIG__」「__VIEWER_TITLE__」の4箇所だけが
 // 未確定のまま残っており、doExportAsViewer()がそれぞれ置き換えてから書き出す。
 const VIEWER_TEMPLATE = "__VIEWER_TEMPLATE_JSON__";
@@ -130,8 +130,8 @@ function buildStateFromStructure(structure) {
   };
 }
 
-// STRUCTUREに含まれる全ての「単独の入力欄」候補（住民公開設定①〜③の共通プール）。
-// グループ化された列（配列項目）は住民公開設定の対象外とする（1レコード＝1事業という
+// STRUCTUREに含まれる全ての「単独の入力欄」候補（閲覧設定①〜③の共通プール）。
+// グループ化された列（配列項目）は閲覧設定の対象外とする（1レコード＝1事業という
 // 前提のシンプルな一覧・検索を優先し、配列項目まで一覧に列展開する複雑さは持たせない）。
 function candidateSingles() {
   const { singles } = CoreLogic.findMappingTargets(CURRENT_STATE.grid, CURRENT_STATE.sections, CURRENT_STATE.maxCol, CURRENT_STATE.manualGroups);
@@ -153,7 +153,7 @@ function allGroupCandidates() {
   return groups;
 }
 
-// 繰り返し行のうち数値・金額型のもの（①表示項目・②集計対象で使用）。住民公開ページ側で
+// 繰り返し行のうち数値・金額型のもの（①表示項目・②集計対象で使用）。閲覧ページ側で
 // 「合計」を再現するには、この列を事業ごとにまず合計し、事業間でさらに合計する必要がある
 // （Excelの=SUM(...)と同じ範囲を合計するので数値的には同じ結果になる）。テキスト型の
 // 繰り返し列を1つの数値に要約する明確な方法が無いため、表示・集計の対象は数値・金額型のみ。
@@ -164,7 +164,7 @@ function groupCandidatesNumeric() {
   });
 }
 
-// 集計対象（住民公開設定②）の候補：単独の入力欄＋繰り返し列の両方を、シート上の並び順
+// 集計対象（閲覧設定②）の候補：単独の入力欄＋繰り返し列の両方を、シート上の並び順
 // （先頭セルの行・列）でまとめる。
 function numericAggregateCandidates() {
   return numericCandidateSingles().concat(groupCandidatesNumeric())
@@ -191,7 +191,7 @@ function labelForTarget(target) {
   return target.cells[0].dbKey || target.autoName || CoreLogic.cellRef(target.cells[0]);
 }
 
-// cellId → 表示名。住民公開設定パネル・書き出し前の確認等、対象セルがtargetオブジェクトの
+// cellId → 表示名。閲覧設定パネル・書き出し前の確認等、対象セルがtargetオブジェクトの
 // 形で手元に無い場面向け（labelForTargetはtargetを直接受け取れる場面専用）。
 function labelForCellId(id) {
   const target = candidateSingles().find(t => cellIdOf(t) === id);
@@ -327,7 +327,7 @@ async function scanLoadDirectory() {
 }
 
 // ---------------------------------------------------------------------------
-// STEP2：住民公開設定（①表示項目②集計対象③検索対象④説明文・出典）
+// STEP2：閲覧設定（①表示項目②集計対象③検索対象④説明文・出典）
 // ---------------------------------------------------------------------------
 const CONFIG = {
   displayFieldIds: new Set(),
@@ -483,7 +483,7 @@ function renderConfigScreen() {
 }
 
 // ---------------------------------------------------------------------------
-// STEP3：住民公開用ページの書き出し
+// STEP3：閲覧ページの書き出し
 // ---------------------------------------------------------------------------
 function slugTitle(s) {
   const t = sanitizeForFileName(s).replace(/\s+/g, '_');
@@ -502,7 +502,7 @@ function buildSearchFieldIds() {
 }
 
 // 集計対象は、単独欄・繰り返し列のどちらも{label, unit, ids}という同じ形に正規化して返す
-// （idsは合計対象の実セルid配列。単独欄は要素1件、繰り返し列は行数分。住民公開ページ側は
+// （idsは合計対象の実セルid配列。単独欄は要素1件、繰り返し列は行数分。閲覧ページ側は
 // 種別を意識せず「idsの値を全部合計する」だけでよくなる）。
 function buildAggregateFieldConfigs() {
   return numericAggregateCandidates()
@@ -515,7 +515,7 @@ function buildAggregateFieldConfigs() {
 }
 
 // 表示項目も集計対象と同じ{label, ids}形に正規化する（idsは1件＝単独欄、複数件＝繰り返し列）。
-// 住民公開ページ側は、ids.length===1ならそのまま値を表示し、複数件なら②と同じく
+// 閲覧ページ側は、ids.length===1ならそのまま値を表示し、複数件なら②と同じく
 // 事業内で合計して1つの数値として表示する（テキスト型の繰り返し列は候補にそもそも
 // 含めていないため、複数件は必ず数値・金額型）。
 function buildDisplayFieldConfigs() {
@@ -530,7 +530,7 @@ function buildDisplayFieldConfigs() {
 function buildPublicConfig() {
   const title = ($('#cfg-title').value || '').trim() || defaultTitle();
   return {
-    storageKey: 'jimujigyou_viewer_' + slugTitle(title),
+    storageKey: 'viewer_' + slugTitle(title),
     displayFields: buildDisplayFieldConfigs(),
     aggregateFields: buildAggregateFieldConfigs(),
     showRecordCount: CONFIG.showRecordCount,
@@ -558,14 +558,14 @@ function doExportAsViewer() {
     .replace('/* __RECORDS__ */', escapeScriptClose(JSON.stringify(recordsData)))
     .replace('/* __PUBLIC_CONFIG__ */', escapeScriptClose(JSON.stringify(publicConfig)))
     .replace(/__VIEWER_TITLE__/g, publicConfig.title);
-  const filename = `${publicConfig.title}_公開ページ.html`;
+  const filename = `${publicConfig.title}_閲覧ページ.html`;
   const blob = new Blob([html], { type: 'text/html' });
   saveBlob(blob, filename, (result) => {
-    setStatus(statusMessageForSave(result, filename, `住民公開用ページを書き出しました（${AGG.records.length}件）。`));
+    setStatus(statusMessageForSave(result, filename, `閲覧ページを書き出しました（${AGG.records.length}件）。`));
   });
 }
 
-// 読み込んだ全事業の生データを1つのJSONファイルにまとめて書き出す。住民公開ページとは
+// 読み込んだ全事業の生データを1つのJSONファイルにまとめて書き出す。閲覧ページとは
 // 別に、庁内での再利用・バックアップ・他ツールでの二次利用（Excelでの二次加工、別の
 // 集約ツールへの再読込等）を想定した汎用出力。ネスト構造をそのまま保つ（表形式が
 // 欲しい場合はCSV書き出し（doExportAggregatedCsv）を使う）。
@@ -583,7 +583,10 @@ function doExportAggregatedJson() {
     records: AGG.records.map(r => ({ fileName: r.fileName, data: r.data })),
   };
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const filename = `${sanitizeForFileName(STRUCTURE.formTitle || 'jimujigyou')}_集約データ_${dateStr}.json`;
+  // STRUCTURE.formTitleは①のeffectiveFormTitle()が常にアップロード元ファイル名に
+  // フォールバックするため、通常のUI操作では空にならない（'shukei'に実際に
+  // 落ちるのは、STRUCTUREを手動で組み立てるテストコード等の場合のみ）。
+  const filename = `${sanitizeForFileName(STRUCTURE.formTitle || 'shukei')}_集約データ_${dateStr}.json`;
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   saveBlob(blob, filename, (result) => {
     setStatus(statusMessageForSave(result, filename, `集約データを書き出しました（${AGG.records.length}件）。`));
@@ -591,15 +594,23 @@ function doExportAggregatedJson() {
 }
 
 // CSV書き出し用：単独欄＋繰り返し列（型を問わず全部）をシート上の並び順で列にする。
-// 繰り返し列は、事業内の複数行の値を「／」区切りで1セルにまとめる（1事業＝1行のCSVに
-// するため。行を分けたい場合はJSON書き出しの方を使う想定）。
+// 繰り返し列のうち数値・金額型は事業ごとの合計値（実数）を1セルに、テキスト型は
+// 複数行の値を「／」区切りで1セルにまとめる（1事業＝1行のCSVにするため。内訳を
+// そのまま見たい場合はJSON書き出しの方を使う想定）。
 function allFieldCandidatesSorted() {
   return candidateSingles().concat(allGroupCandidates())
     .sort((a, b) => (a.cells[0].row - b.cells[0].row) || (a.cells[0].col - b.cells[0].col));
 }
 
+// 繰り返し列（グループ）のうち、数値・金額型かどうか（CSVで合計するかどうかの判定に使う）。
+// numericCandidateSingles/groupCandidatesNumericと同じ判定基準。
+function isNumericTarget(t) {
+  const rt = t.cells[0].renderType;
+  return rt === 'number' || rt === 'currency';
+}
+
 // scratchExtract（viewer_app.js）と同じ「使い捨てグリッドに読み込ませてDOM経由で読む」方式。
-// 集約ツールは通常データの値を読まない（住民公開設定はSTRUCTUREの構造だけを見る）ため、
+// 集約ツールは通常データの値を読まない（閲覧設定はSTRUCTUREの構造だけを見る）ため、
 // CSV書き出し専用にここへ実装する。
 function scratchExtractForRecord(data, cellIds) {
   if (!cellIds || cellIds.length === 0) return {};
@@ -631,10 +642,14 @@ function doExportAggregatedCsv() {
     setStatus('⚠ JSONファイルが1件も読み込まれていません。STEP1で読み込んでから書き出してください。');
     return;
   }
-  const columns = allFieldCandidatesSorted().map(t => ({
-    label: labelForTarget(t),
-    ids: t.cells.map(c => CoreLogic.cellId(c)),
-  }));
+  const columns = allFieldCandidatesSorted().map(t => {
+    const isNumericGroup = t.kind === 'group' && isNumericTarget(t);
+    return {
+      label: isNumericGroup ? labelForTarget(t) + '合計' : labelForTarget(t),
+      ids: t.cells.map(c => CoreLogic.cellId(c)),
+      isNumericGroup,
+    };
+  });
   const allIds = columns.flatMap(c => c.ids);
 
   const rows = [['ファイル名', ...columns.map(c => c.label)]];
@@ -643,14 +658,24 @@ function doExportAggregatedCsv() {
     const row = [r.fileName];
     columns.forEach((c) => {
       const values = c.ids.map(id => raw[id] || '').filter(v => v !== '');
-      row.push(values.join(' / '));
+      if (c.isNumericGroup) {
+        // 表示用にカンマ区切りされた数値文字列（例："18,000"）を合計するため、
+        // カンマを除いてからparseFloatする。1件も値が無い場合は0ではなく空欄にする
+        // （「合計0」と「未入力」を区別するため）。
+        row.push(values.length === 0 ? '' : String(values.reduce((sum, v) => sum + (parseFloat(v.replace(/,/g, '')) || 0), 0)));
+      } else {
+        row.push(values.join(' / '));
+      }
     });
     rows.push(row);
   });
 
   const csvText = rows.map(row => row.map(csvEscape).join(',')).join('\r\n');
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const filename = `${sanitizeForFileName(STRUCTURE.formTitle || 'jimujigyou')}_集約データ_${dateStr}.csv`;
+  // STRUCTURE.formTitleは①のeffectiveFormTitle()が常にアップロード元ファイル名に
+  // フォールバックするため、通常のUI操作では空にならない（'shukei'に実際に
+  // 落ちるのは、STRUCTUREを手動で組み立てるテストコード等の場合のみ）。
+  const filename = `${sanitizeForFileName(STRUCTURE.formTitle || 'shukei')}_集約データ_${dateStr}.csv`;
   // 先頭にBOMを付与し、Excelで開いたときの文字化けを防ぐ。
   const blob = new Blob(['﻿' + csvText], { type: 'text/csv' });
   saveBlob(blob, filename, (result) => {

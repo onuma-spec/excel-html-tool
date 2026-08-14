@@ -136,7 +136,7 @@
   <div id="list-root">
     <div id="viewer-search-bar" class="no-print">
       <input type="text" id="viewer-keyword" placeholder="キーワードで検索">
-      <label id="viewer-only-checked-label" for="viewer-only-checked"><input type="checkbox" id="viewer-only-checked">気になる事業だけ表示</label>
+      <label id="viewer-only-checked-label" for="viewer-only-checked"><input type="checkbox" id="viewer-only-checked">気になるデータだけ表示</label>
       <label id="viewer-show-memo-label" for="viewer-show-memo"><input type="checkbox" id="viewer-show-memo">メモを表示</label>
     </div>
     <div id="viewer-col-toggle" class="no-print"></div>
@@ -144,12 +144,12 @@
     <div id="viewer-table-root"></div>
 
     <div class="action-bar no-print">
-      <button class="secondary" id="btn-print-checked">🖨 表示中の事業を印刷</button>
+      <button class="secondary" id="btn-print-checked">🖨 表示中のデータを印刷</button>
       <button class="secondary" id="btn-export-backup">💾 ☑・メモをバックアップ（JSON）</button>
       <button class="secondary" onclick="document.getElementById('backup-file-input').click()">📂 バックアップを読み込む</button>
       <input type="file" id="backup-file-input" accept="application/json" style="display:none">
     </div>
-    <p class="hint no-print">現在の検索・絞り込み結果をまとめて印刷します。☑を付けた事業だけを印刷したい場合は、「気になる事業だけ表示」で絞り込んでからこのボタンを押してください。</p>
+    <p class="hint no-print">現在の検索・絞り込み結果をまとめて印刷します。☑を付けたデータだけを印刷したい場合は、「気になるデータだけ表示」で絞り込んでからこのボタンを押してください。</p>
     <p class="hint no-print">☑・メモはこの端末のブラウザにのみ保存されます（送信は行いません）。機種変更等に備えてバックアップをご利用ください。</p>
   </div>
 
@@ -159,7 +159,7 @@
     <div id="detail-nav" class="no-print">
       <button class="secondary" id="detail-prev">← 前へ</button>
       <button class="secondary" id="detail-next">次へ →</button>
-      <button class="secondary" id="btn-print-detail">🖨 この事業を印刷</button>
+      <button class="secondary" id="btn-print-detail">🖨 このデータを印刷</button>
     </div>
     <div id="detail-summary-bar" class="no-print"></div>
     <div id="detail-body-root"></div>

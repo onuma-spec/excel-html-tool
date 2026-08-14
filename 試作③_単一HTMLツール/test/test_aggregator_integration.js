@@ -258,7 +258,7 @@ async function readyPage(structure, opts) {
     });
   });
 
-  await runSuiteAsync('aggregator_app: STEP2（住民公開設定）', async () => {
+  await runSuiteAsync('aggregator_app: STEP2（閲覧設定）', async () => {
     await testAsync('candidateSinglesはSTRUCTUREの単独入力欄を返す（グループ化された列は含まない）', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const dom = await readyPage(structure);
@@ -397,7 +397,7 @@ async function readyPage(structure, opts) {
     });
   });
 
-  await runSuiteAsync('aggregator_app: STEP3（住民公開用ページの書き出し）', async () => {
+  await runSuiteAsync('aggregator_app: STEP3（閲覧ページの書き出し）', async () => {
     await testAsync('buildPublicConfigは選択順ではなくシート上の並び順でdisplayFieldsを返す', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const dom = await readyPage(structure);
@@ -432,10 +432,10 @@ async function readyPage(structure, opts) {
       const win = dom.window;
       await win.__app.handleFileInput([new win.File([JSON.stringify({ シート: {} })], 'a.json', { type: 'application/json' })]);
       win.__app.doExportAsViewer();
-      assertEqual(win.document.getElementById('status').textContent, '住民公開用ページを書き出しました（1件）。');
+      assertEqual(win.document.getElementById('status').textContent, '閲覧ページを書き出しました（1件）。');
     });
 
-    await testAsync('書き出されるファイル名はタイトル＋「_公開ページ.html」', async () => {
+    await testAsync('書き出されるファイル名はタイトル＋「_閲覧ページ.html」', async () => {
       const structure = buildStructureFromFixture(FIXTURE, 'カスタム様式');
       const dom = await readyPage(structure);
       const win = dom.window;
@@ -443,7 +443,7 @@ async function readyPage(structure, opts) {
       let capturedDownload = null;
       win.HTMLAnchorElement.prototype.click = function () { capturedDownload = this.download; };
       win.__app.doExportAsViewer();
-      assertEqual(capturedDownload, 'カスタム様式_公開ページ.html');
+      assertEqual(capturedDownload, 'カスタム様式_閲覧ページ.html');
     });
 
     await testAsync('実際のviewer_template.htmlを埋め込んだ状態で書き出すと、STRUCTURE・RECORDS・PUBLIC_CONFIGが注入されたHTMLになる', async () => {
@@ -465,7 +465,7 @@ async function readyPage(structure, opts) {
         fr.onerror = reject;
         fr.readAsText(capturedBlob);
       });
-      assertTrue(html.includes('<title>実配布様式</title>'), '住民公開ページのtitleに反映されているはず');
+      assertTrue(html.includes('<title>実配布様式</title>'), '閲覧ページのtitleに反映されているはず');
       assertTrue(html.includes('"formTitle":"実配布様式"'), 'STRUCTUREが注入されているはず');
       assertTrue(html.includes('事業A') && html.includes('事業B'), 'RECORDSが注入されているはず');
       assertFalse(html.includes('__STRUCTURE__') || html.includes('__RECORDS__') || html.includes('__PUBLIC_CONFIG__'), 'プレースホルダーが残っていないはず');
@@ -575,6 +575,64 @@ async function readyPage(structure, opts) {
       assertTrue(lines[0].includes('事業名'), 'ヘッダーに単独欄のラベルが含まれるはず');
       assertTrue(lines[0].includes('決算見込額'), 'ヘッダーに繰り返し列のラベルも含まれるはず（Excelの合計セルと同じ範囲）');
       assertTrue(lines[1].includes('"カンマ,と""クォート""を含む事業名"'), 'カンマとダブルクォートを含む値が正しくエスケープされているはず');
+    });
+
+    await testAsync('doExportAggregatedCsvは、繰り返し数値列を事業ごとの合計（実数）にする。テキスト列は従来通り／区切りのまま', async () => {
+      const structure = loadRealJimujigyouStructure();
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const singles = win.__app.candidateSingles();
+      const nameField = singles.find(t => t.rowLabel === '事業名' && t.autoName === 'col2');
+      const nameId = win.CoreLogic.cellId(nameField.cells[0]);
+
+      const numericGroups = win.__app.groupCandidatesNumeric();
+      const kessanGroup = numericGroups.find(g => win.__app.labelForTarget(g) === '決算見込額');
+      assertTrue(!!kessanGroup, 'このフィクスチャは「決算見込額」という繰り返し数値列を持つはず');
+      const kessanIds = kessanGroup.cells.map(c => win.CoreLogic.cellId(c));
+
+      const allGroups = win.__app.allGroupCandidates();
+      const jisseki = allGroups.find(g => win.__app.labelForTarget(g) === '事業内容と活動実績');
+      assertTrue(!!jisseki, 'このフィクスチャは「事業内容と活動実績」という繰り返しテキスト列を持つはず');
+      const jissekiIds = jisseki.cells.map(c => win.CoreLogic.cellId(c));
+
+      const data = (() => {
+        const scratch = win.document.getElementById('agg-scratch-root');
+        const tempState = win.__app.buildStateFromStructure(structure);
+        win.GridRender.renderGrid(scratch, tempState, { showGear: false });
+        win.document.getElementById(nameId).value = '合計テスト事業';
+        // カンマ区切り表示（例："18,000"）でも正しく合計できることを確認するため、
+        // わざとカンマ付きの文字列を入れる。
+        win.document.getElementById(kessanIds[0]).value = '18,000';
+        win.document.getElementById(kessanIds[1]).value = '2,000';
+        win.document.getElementById(jissekiIds[0]).value = '第1工区';
+        win.document.getElementById(jissekiIds[1]).value = '第2工区';
+        const result = win.GridRender.collectData(tempState);
+        scratch.innerHTML = '';
+        return result;
+      })();
+
+      await win.__app.handleFileInput([new win.File([JSON.stringify(data)], 'a.json', { type: 'application/json' })]);
+
+      let capturedBlob = null;
+      win.URL.createObjectURL = (blob) => { capturedBlob = blob; return 'blob:mock'; };
+      win.HTMLAnchorElement.prototype.click = function () {};
+      win.__app.doExportAggregatedCsv();
+      const text = await new Promise((resolve, reject) => {
+        const fr = new win.FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.onerror = reject;
+        fr.readAsText(capturedBlob);
+      });
+      const lines = text.split('\r\n');
+      const headerCols = lines[0].split(',');
+      const kessanColIndex = headerCols.indexOf('決算見込額合計');
+      assertTrue(kessanColIndex >= 0, 'ヘッダーは「決算見込額合計」になっているはず（見出し「決算見込額」のままではない）');
+      const jissekiColIndex = headerCols.indexOf('事業内容と活動実績');
+      assertTrue(jissekiColIndex >= 0, 'テキスト列のヘッダーは「合計」が付かず従来通りのはず');
+
+      const dataCols = lines[1].split(',');
+      assertEqual(dataCols[kessanColIndex], '20000', 'カンマを除いた実数の合計（18000+2000）になっているはず');
+      assertEqual(dataCols[jissekiColIndex], '第1工区 / 第2工区', 'テキスト列は従来通り／区切りのままのはず');
     });
   });
 

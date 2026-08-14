@@ -1,7 +1,7 @@
-// 住民公開ページ（ツール4）側のロジック。読み取り専用・書き込みは一切行わない。
+// 閲覧ページ（ツール4）側のロジック。読み取り専用・書き込みは一切行わない。
 // STRUCTURE（様式構造）・RECORDS（各事業の生データ配列）・PUBLIC_CONFIG（集約ツールが
 // 設定した表示・集計・検索項目や説明文）はビルド時ではなく、集約ツールの
-// 「住民公開用ページを書き出す」操作時にこのファイルへ直接注入される。
+// 「閲覧ページを書き出す」操作時にこのファイルへ直接注入される。
 // ☑・メモはlocalStorageにのみ保存し、どこにも送信しない（バックアップはJSON書き出しのみ）。
 
 function $(sel) { return document.querySelector(sel); }
@@ -60,7 +60,7 @@ function scratchExtract(data, cellIds) {
 
 let DETAIL_STATE = null;
 
-const STORAGE_KEY = (PUBLIC_CONFIG && PUBLIC_CONFIG.storageKey) || 'jimujigyou_viewer';
+const STORAGE_KEY = (PUBLIC_CONFIG && PUBLIC_CONFIG.storageKey) || 'viewer';
 
 function loadLocalState() {
   try {

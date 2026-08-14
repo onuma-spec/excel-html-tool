@@ -16,9 +16,9 @@ let EXPORT_DIR_HANDLE = null;
 // doExportAsForm()がそれぞれのフォーム固有の内容に置き換えてから書き出す。
 const FILLER_TEMPLATE = "__FILLER_TEMPLATE_JSON__";
 
-// ツール3（複数事業のJSONを集約し、住民公開ページを書き出す集約ツール）のHTML全文。
+// ツール3（複数事業のJSONを集約し、閲覧ページを書き出す集約ツール）のHTML全文。
 // ビルド時（assemble.py）に埋め込まれる。「__STRUCTURE__」の1箇所だけが未確定のまま
-// 残っており（この集約ツール自身が住民公開ページのVIEWER_TEMPLATEを内包しているため、
+// 残っており（この集約ツール自身が閲覧ページのVIEWER_TEMPLATEを内包しているため、
 // ビューアー側のプレースホルダーはこの時点では触らない）、doExportAsAggregator()が
 // 置き換えてから書き出す。
 const AGGREGATOR_TEMPLATE = "__AGGREGATOR_TEMPLATE_JSON__";
