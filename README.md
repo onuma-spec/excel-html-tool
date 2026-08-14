@@ -115,3 +115,7 @@ python assemble.py
 ```
 npm test
 ```
+
+## ライセンス
+
+MIT License（[LICENSE](LICENSE)参照）
