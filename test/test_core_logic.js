@@ -187,12 +187,12 @@ runSuite('core_logic: 手動グループ化', () => {
   });
 
   // 手動グループはfindManualGroupがisAutoGroupStartより先に判定されるため、u0が一致する
-  // 範囲では必ず手動側のキー名が採用される。ただし手動グループはfromCol=1（1列目を
-  // 消費しない）なので、縦結合ラベルの先頭行だけは「ラベル文字→隣のセル」という
-  // 通常の単発行としても解釈され、グループ名とは別に元のラベル文字がもう1つの
-  // トップレベル項目として漏れ出す（これは既知の仕様上の癖であり、バグではない：
-  // 縦結合列に手動グループを重ねる場合は、事前に「自動グループ化を解除する」で
-  // 縦結合自体の効果を無効化してから使うのが正しい運用）。
+  // 範囲では必ず手動側のキー名が採用される。縦結合ラベル（複数行にまたがる結合セル）は
+  // buildRowEntryが「1行だけのラベルにはなり得ない」として除外するため、グループ名とは
+  // 別のトップレベル項目としては漏れ出さない（かつては先頭行だけ漏れ出す既知の仕様上の
+  // 癖として許容していたが、実機で「縦結合列に自動グループ化解除→手動グループ化」という
+  // まさに推奨されていた運用を行ったところ、先頭行のデータが配列から丸ごと欠落する実害が
+  // 発覚したため修正した）。
   test('手動グループは同じ範囲の自動検出（縦結合）より優先してキー名を決める', () => {
     const ws = mockSheet({
       maxRow: 3, maxCol: 2,
@@ -204,10 +204,13 @@ runSuite('core_logic: 手動グループ化', () => {
     const manualGroups = [{ row0: 1, row1: 3, name: '手動優先' }];
     const out = CoreLogic.buildSectionObject(grid, 1, 3, maxCol, null, manualGroups);
     assertTrue(Array.isArray(out['手動優先']), '手動グループのキー名で配列が出力されるべき');
-    assertEqual(out['活動実績'], '', '縦結合ラベル文字自体は先頭行の値として別途漏れ出す（既知の仕様）');
+    assertEqual(out['活動実績'], undefined, '縦結合ラベル文字は複数行にまたがるため、単独の行ラベルとしては漏れ出さない');
+    // 縦結合の起点（アンカー）行は1〜3行目のうち1行目。この行のデータが配列から
+    // 欠落しないこと（実機で発見したバグの核心部分）を明示的に確認する。
+    assertEqual(out['手動優先'].length, 3, 'アンカー行を含む3行すべてが配列に含まれるべき');
   });
 
-  test('自動グループ化の解除（disabled）は縦結合ラベルを先頭行だけの通常ラベル行として扱う', () => {
+  test('自動グループ化の解除（disabled）は縦結合ラベルを個々の行のラベルとして誤用しない', () => {
     const ws = mockSheet({
       maxRow: 2, maxCol: 2,
       cells: [
@@ -217,10 +220,12 @@ runSuite('core_logic: 手動グループ化', () => {
     const { grid, maxCol } = CoreLogic.buildGrid(ws);
     const manualGroups = [{ row0: 1, row1: 2, name: null, disabled: true }];
     const out = CoreLogic.buildSectionObject(grid, 1, 2, maxCol, null, manualGroups);
-    // グループとしては出力されない（配列ではない）が、先頭行はラベル→値として残る。
-    // 2行目の値セルは、どのキーにも対応付かず出力から漏れる
-    // （findUnreachableCellsで検出できることを別テストで確認済み）。
-    assertEqual(out, { '活動実績': '' });
+    // 手動グループへの置き換えを行わないまま自動グループ化だけを解除すると、縦結合ラベルは
+    // 複数行にまたがるため単独行のラベルにはなり得ず、1・2行目とも出力から丸ごと漏れる。
+    // ただし両方の行がfindUnreachableCellsで正しくunreachable判定される（別テストで確認）ため、
+    // 書き出し前チェックの安全網には気付かれる。以前は1行目だけ「ラベル→値」の体裁で
+    // 出力に現れてしまい、reached扱いになって書き出し前チェックをすり抜けていた。
+    assertEqual(out, {});
   });
 });
 
@@ -311,6 +316,24 @@ runSuite('core_logic: 書き出し前チェック（findUnreachableCells）', ()
     const manualGroups = [{ row0: 2, row1: 3, name: '繰り返し' }];
     const after = CoreLogic.findUnreachableCells(grid, sections, maxCol, manualGroups);
     assertEqual(after.unreachable.length, 0, 'グループ化すれば解消するはず');
+  });
+
+  test('自動グループ化の解除（disabled・置き換えなし）は、縦結合の全行がunreachableとして検出される', () => {
+    // 縦結合ラベルは複数行にまたがるため単独行のラベルにはなり得ず出力から漏れる。
+    // 以前はアンカー行（1行目）だけ「ラベル→値」の体裁を取って出力に現れてしまい、
+    // reached扱いになって書き出し前チェックをすり抜けていた（実機で発見したバグ）。
+    // 今は1・2行目とも正しくunreachableとして検出され、ユーザーが気付ける。
+    const ws = mockSheet({
+      maxRow: 2, maxCol: 2,
+      cells: [
+        { row: 1, col: 1, v: '活動実績', rowspan: 2 },
+      ],
+    });
+    const { grid, sections, maxCol } = extract(ws);
+    const manualGroups = [{ row0: 1, row1: 2, name: null, disabled: true }];
+    const { unreachable } = CoreLogic.findUnreachableCells(grid, sections, maxCol, manualGroups);
+    const rows = unreachable.map(c => c.row).sort();
+    assertEqual(rows, [1, 2], '縦結合の全行（アンカー行を含む）がunreachableとして検出されるべき');
   });
 
   test('数式セル・見出しセル・blockedセルは入力対象外なのでunreachableに含まれない', () => {

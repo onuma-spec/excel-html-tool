@@ -502,7 +502,15 @@ function defaultKeyFor(c, precedingLabel) {
 // 「設定済みも含めて全部」を判断する）。
 function buildRowEntry(grid, u0, u1, maxCol, fromCol, getValue, collector, context) {
   getValue = getValue || defaultGetValue;
-  const cells = cellsOfRow(grid, u0, maxCol, fromCol).filter(c => !c.isFormula);
+  // 複数行にまたがる結合セル（row2 > row）は、この行1行だけの見出しにはなり得ない
+  // （元々グループ全体の見出しだったもの。手動グループ化の解除・再グループ化等を経て
+  // アンカー行だけがここに単独で流れ込んでくることがある）。「行の先頭セル＝この行の
+  // ラベル」「行途中の見出し＝直後の値の項目名」のどちらの判定からも除外し、この行には
+  // 存在しないものとして扱う（残す場合、アンカー行だけラベル扱いになり配列から漏れたり、
+  // 直後のセルの項目名として誤って使われたりする）。
+  const cells = cellsOfRow(grid, u0, maxCol, fromCol)
+    .filter(c => !c.isFormula)
+    .filter(c => !(c.hasText && c.row2 > c.row));
   if (cells.length === 0) return { label: null, value: null, hasRealData: false };
 
   const first = cells[0];
