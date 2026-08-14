@@ -77,14 +77,15 @@ const STEP_GUIDE = [
     detailHtml: `
       <ul>
         <li><strong>見出し・自動計算</strong>：見出し文（または合計行等の数式）が適切か確認する。⚙アイコンから「見出し」「数式」を選べる。見出しを空欄にすると、入力させたくない余白セルにできる。</li>
-        <li><strong>入力欄</strong>：入力しやすい形式（テキスト／数値／金額／プルダウン）になっているか確認する。⚙アイコンから型を変更できる。複数セルをドラッグまたはCtrl+クリックで選択すれば、画面下部の「まとめて設定」で一括変更もできる。項目名（データベース上の列名）は、この後のSTEP3「データ構造確認」でまとめて設定する。</li>
+        <li><strong>入力欄</strong>：入力しやすい形式（テキスト／数値／金額／プルダウン）になっているか確認する。項目名（データベース上の列名）は、この後のSTEP3「データ構造確認」でまとめて設定する。</li>
         <li>同じ形式の行が繰り返される表（毎年の活動記録、品目ごとの明細など）は、グループとしてまとめられる。行範囲をドラッグまたはCtrl+クリックで選択→画面下部の「🗂 グループ化する」を押す→分かりやすいグループ名を入力して保存する。グループ化すると、各行がそれぞれ独立した記録として書き出されるようになる（グループ化しないと、2行目以降の内容が正しく取り出せないことがある）。</li>
         <li>なお、Excelのタテ結合がある範囲は、読み込み時に自動でグループ化されていることがあります（青緑の縦線）。意図と違う場合（見出し行を巻き込んでいる等）は、同じ範囲を選び直して「自動グループ化を解除する」から個別に無効化できます。</li>
       </ul>
     `,
   },
   { label: 'STEP3：データ構造確認で項目名を設定する' },
-  { label: 'STEP4：書き出す' },
+  { label: 'STEP4：項目の運用設定' },
+  { label: 'STEP5：書き出す' },
 ];
 
 // 作業場所の[data-step-label]要素にSTEP_GUIDEのlabelを流し込み、
@@ -247,12 +248,12 @@ function handleFormHtmlFile(file) {
         manualGroups: structure.manualGroups || [],
         // ファイル名に含める項目の選択も同様に、前回の書き出し内容を引き継いで続きから編集できるようにする。
         fileNameFieldIds: new Set(structure.fileNameFields || []),
-        // 必須項目・レビュー欄・一覧表示候補項目も同様に引き継ぐ。displayCandidateFieldsは
+        // 必須項目・2次入力欄・2次入力画面表示項目も同様に引き継ぐ。displayCandidateFieldsは
         // ファイル名項目も含んだ状態で書き出されているが、serializeStructure側で
         // fileNameFieldIdsとの和集合を毎回取り直すため、ここではそのまま復元してよい
         // （ファイル名項目分が重複してSetに入っても実害はない）。
         requiredFieldIds: new Set(structure.requiredFields || []),
-        reviewFieldIds: new Set(structure.reviewFields || []),
+        secondaryFieldIds: new Set(structure.secondaryFields || []),
         displayCandidateFieldIds: new Set(structure.displayCandidateFields || []),
       };
       rebuildAndRender();
@@ -388,7 +389,7 @@ function openCellSettings(infoOrList) {
   function render() {
     box.innerHTML = '';
     const title = multi
-      ? `セル設定（選択中の${infos.length}個をまとめて変更）`
+      ? `セル設定（選択中の${infos.length}個をまとめて設定）`
       : `セル設定（${cellIds[0]}）`;
     box.appendChild(el('h3', { text: title }));
 
@@ -528,7 +529,7 @@ function openManualGroupModal() {
     text: '複数行の表（Excelでタテ結合が使われている表・いない表のどちらも）を、親ラベル＋子レコードの配列としてJSON出力できるようにします。'
       + '選択範囲は行単位で扱われます（列の選び方は結果に影響しません）。',
   }));
-  box.appendChild(el('label', { text: 'グループ名（JSON出力時のキー名）' }));
+  box.appendChild(el('label', { text: '文脈（JSON出力時のキー名になります）' }));
   const nameInput = el('input', { id: 'm-group-name', type: 'text', value: existing ? existing.name : '' });
   box.appendChild(nameInput);
 
@@ -731,7 +732,7 @@ function serializeStructure() {
     });
   }
   const formTitle = effectiveFormTitle();
-  // ファイル名に含める項目・必須項目・レビュー欄・一覧表示候補項目（いずれもcellIdの配列、
+  // ファイル名に含める項目・必須項目・2次入力欄・2次入力画面表示項目（いずれもcellIdの配列、
   // シート上の並び順）。findMappingTargetsを再実行してシート順（singlesは既にrow/col順）を
   // 基準にし、選択順（Set挿入順）に依存しないようにする。
   const { singles: allSingles } = CoreLogic.findMappingTargets(CURRENT.grid, CURRENT.sections, CURRENT.maxCol, CURRENT.manualGroups);
@@ -740,14 +741,14 @@ function serializeStructure() {
     : [];
   const fileNameFields = idsInSheetOrder(CURRENT.fileNameFieldIds);
   const requiredFields = idsInSheetOrder(CURRENT.requiredFieldIds);
-  const reviewFields = idsInSheetOrder(CURRENT.reviewFieldIds);
-  // 一覧表示候補項目：事務局が個別に選んだ項目に加え、ファイル名項目は常に自動的に候補へ
+  const secondaryFields = idsInSheetOrder(CURRENT.secondaryFieldIds);
+  // 2次入力画面表示項目：事務局が個別に選んだ項目に加え、ファイル名項目は常に自動的に候補へ
   // 含める（同じ項目を2回チェックさせない、というユーザー承認済みの仕様）。
   const displayCandidateSet = new Set([...(CURRENT.fileNameFieldIds || []), ...(CURRENT.displayCandidateFieldIds || [])]);
   const displayCandidateFields = idsInSheetOrder(displayCandidateSet);
   return {
     formTitle,
-    fileNameFields, requiredFields, reviewFields, displayCandidateFields,
+    fileNameFields, requiredFields, secondaryFields, displayCandidateFields,
     maxRow: CURRENT.maxRow, maxCol: CURRENT.maxCol,
     widths: CURRENT.widths, heights: CURRENT.heights,
     sections: CURRENT.sections.map(s => ({ title: s.title, row0: s.row0, row1: s.row1 })),
@@ -856,6 +857,46 @@ function doExportAsAggregator() {
   const blob = new Blob([html], { type: 'text/html' });
   saveBlob(blob, filename, (result) => {
     setStatus(statusMessageForSave(result, filename, '集約ツールを書き出しました。'));
+  });
+}
+
+// STEP5の書き出すボタン（1つ）から、入力フォーム（ツール2）・集約ツール（ツール3）の
+// 2ファイルをまとめて書き出す。両方とも今のSTRUCTURE（構造）だけから決まり、
+// データを持たないため、片方だけ書き出して後で構造を変えると集約ツール側が
+// 古いまま取り残される事故を防げる（doExportAsForm/doExportAsAggregatorは
+// 既存テストが個別に検証しているためそのまま流用し、ここでは呼び出しを束ねるだけ）。
+function statusMessageForBothSave(formResult, aggregatorResult) {
+  if (formResult === 'cancelled' || aggregatorResult === 'cancelled') {
+    return '書き出しを中止しました（指定フォルダに同名ファイルが既にあります）。';
+  }
+  if (formResult === 'download-failed' || aggregatorResult === 'download-failed') {
+    return '⚠️ 指定フォルダへの保存に失敗したため、通常のダウンロードで保存しました（入力フォーム・集約ツール）。';
+  }
+  if (formResult === 'dir' && aggregatorResult === 'dir') {
+    return '入力フォーム・集約ツールの2ファイルを指定フォルダへ保存しました。';
+  }
+  return '入力フォーム・集約ツールの2ファイルを書き出しました。';
+}
+
+function doExportAsBoth() {
+  if (!CURRENT || !CURRENT.grid) return;
+  const structure = serializeStructure();
+  const formHtml = FILLER_TEMPLATE
+    .replace(/__FORM_TITLE__/g, structure.formTitle)
+    .replace('/* __STRUCTURE__ */', JSON.stringify(structure));
+  const formFilename = `${structure.formTitle}_入力フォーム.html`;
+  const formBlob = new Blob([formHtml], { type: 'text/html' });
+
+  const aggregatorHtml = AGGREGATOR_TEMPLATE
+    .replace(/__FORM_TITLE__/g, structure.formTitle)
+    .replace('/* __STRUCTURE__ */', JSON.stringify(structure));
+  const aggregatorFilename = `${structure.formTitle}_集約ツール.html`;
+  const aggregatorBlob = new Blob([aggregatorHtml], { type: 'text/html' });
+
+  saveBlob(formBlob, formFilename, (formResult) => {
+    saveBlob(aggregatorBlob, aggregatorFilename, (aggregatorResult) => {
+      setStatus(statusMessageForBothSave(formResult, aggregatorResult));
+    });
   });
 }
 
@@ -1108,13 +1149,13 @@ function buildMappingSection(singles, groups) {
   const wrap = el('div', { class: 'mapping-section' });
   const singleBlock = buildMappingBlock(
     `単独の入力欄（${singles.length}件）`,
-    '既にExcelの見出し文字から項目名が決まっている欄はそのままで大丈夫です。色が付いている欄は自動名（colN）のままなので、必要に応じて項目名を設定してください。変更したい欄だけ書き換えて「まとめて保存」を押してください。',
+    '対象セルに応じた項目名を入力し「まとめて保存」を押してください。色が付いている欄は自動名（colN）です、必要に応じて項目名を変更してください。',
     singles,
   );
   if (singleBlock) wrap.appendChild(singleBlock);
   const groupBlock = buildMappingBlock(
-    `グループ化された列（${groups.length}件）`,
-    '🗂グループ化された範囲は列ごとにまとめています。項目名を変更すると、その列の全ての行に同じ項目名が一括で適用されます。',
+    `グループ化された入力欄（${groups.length}件）`,
+    '対象セルに応じた項目名を入力し「まとめて保存」を押してください。',
     groups,
   );
   if (groupBlock) wrap.appendChild(groupBlock);
@@ -1143,7 +1184,7 @@ function buildFileNameFieldPicker(singles) {
       if (!CURRENT.fileNameFieldIds) CURRENT.fileNameFieldIds = new Set();
       if (checkbox.checked) CURRENT.fileNameFieldIds.add(cellId);
       else CURRENT.fileNameFieldIds.delete(cellId);
-      // 一覧表示候補項目ピッカーのforceCheckedIds（ファイル名項目の自動候補化）を
+      // 2次入力画面表示項目ピッカーのforceCheckedIds（ファイル名項目の自動候補化）を
       // 反映させるため、チェック直後にパネル全体を再描画する。
       renderCheckPanel();
     });
@@ -1154,12 +1195,12 @@ function buildFileNameFieldPicker(singles) {
   return wrap;
 }
 
-// 必須項目／レビュー欄／一覧表示候補項目のピッカーを組み立てる汎用版。
+// 必須項目／2次入力欄／2次入力画面表示項目のピッカーを組み立てる汎用版。
 // buildFileNameFieldPickerと見た目・構造は同じだが、対象のCURRENTプロパティ（storeKey）と
 // チェックボックスのidプレフィックスだけを差し替えられるようにしてある
 // （ファイル名項目は既存テスト・既存挙動を壊さないよう、専用関数のまま触らずに残した）。
 // opts.forceCheckedIds（Set）を渡すと、そのcellIdは常にチェック済み・操作不可（disabled）で
-// 表示する（一覧表示候補項目のうち、ファイル名項目として選択済みのものを自動的に
+// 表示する（2次入力画面表示項目のうち、ファイル名項目として選択済みのものを自動的に
 // 候補へ含める＝重複してチェックさせない、という仕様のため）。
 function buildGenericFieldPicker(singles, opts) {
   if (singles.length === 0) return null;
@@ -1197,7 +1238,34 @@ function buildGenericFieldPicker(singles, opts) {
 // グリッドを覆い隠す中央モーダルではなく、右側に常駐するサイドパネルとして
 // ファイル読込直後から表示し、グリッドの状態が変わるたびに（rebuildAndRender経由で）
 // 自動的に最新化する。ユーザーがこれを見ながら手直し・グループ化を進める想定。
-const CHECK_PANEL_STATE = { rawJsonOpen: false };
+
+// STEP3〜5はパネルが縦に長くなりがちなので、それぞれ折りたたみできるようにする。
+// renderCheckPanel()は手直しのたびにパネル全体を作り直すため、開閉状態はここ
+// （モジュールスコープ）で保持し、再描画のたびに復元する（既定はopen＝従来通り
+// 全部開いた状態のまま、ユーザーが必要に応じて畳んで縦の長さを詰められるようにする）。
+// STEP3の見出しは「データ構造確認」の直下という既存の位置を維持したいが、その中身
+// （マッピング表）は書き出し前チェックの警告文の後に離れて置かれているため、native
+// <details>（summary/contentが親子関係必須）ではなくクリックで表示切替する自前実装にする。
+const STEP_PANEL_OPEN = { step3: true, step4: true, step5: true };
+
+function buildStepLabel(key, guideIdx) {
+  const label = el('p', {
+    class: 'step-label step-toggle',
+    text: (STEP_PANEL_OPEN[key] ? '▾ ' : '▸ ') + STEP_GUIDE[guideIdx].label,
+  });
+  label.addEventListener('click', () => {
+    STEP_PANEL_OPEN[key] = !STEP_PANEL_OPEN[key];
+    renderCheckPanel();
+  });
+  return label;
+}
+
+function buildStepContentWrap(key, contentElements) {
+  const wrap = el('div', { class: 'step-content' });
+  if (!STEP_PANEL_OPEN[key]) wrap.style.display = 'none';
+  contentElements.forEach((elx) => { if (elx) wrap.appendChild(elx); });
+  return wrap;
+}
 
 function renderCheckPanel() {
   if (!CURRENT || !CURRENT.grid) return;
@@ -1236,11 +1304,11 @@ function renderCheckPanel() {
   const box = panel;
 
   box.appendChild(el('h3', { text: 'データ構造確認' }));
-  box.appendChild(el('p', { class: 'm-note', text: '手直し・グループ化のたびに自動で更新されます。常にこの内容を確認しながら設定を進めてください。' }));
+  box.appendChild(buildStepLabel('step3', 2));
+  box.appendChild(el('p', { class: 'step-memo', text: '💡 Excelの見出しは人が読むためのものですが、データベース化にはコンピュータが扱える固有の名前が必要です。ここでその名前を決めます。' }));
+  box.appendChild(el('p', { class: 'm-note', text: 'セルの設定を行うたびに自動で更新されます。' }));
 
-  if (unreachable.length === 0) {
-    box.appendChild(el('p', { class: 'm-note', text: '✅ 現在の設定で、入力欄に入力した内容はすべて書き出されます。問題は見つかりませんでした。' }));
-  } else {
+  if (unreachable.length > 0) {
     if (groupable.length > 0) {
       box.appendChild(el('p', {
         class: 'm-note m-warn',
@@ -1293,67 +1361,67 @@ function renderCheckPanel() {
   const { singles, groups } = CoreLogic.findMappingTargets(CURRENT.grid, CURRENT.sections, CURRENT.maxCol, CURRENT.manualGroups);
   const isReachable = (target) => !target.cells.some(c => unreachableIds.has(CoreLogic.cellId(c)));
   const mappingEl = buildMappingSection(singles.filter(isReachable), groups.filter(isReachable));
-  if (mappingEl) {
-    box.appendChild(el('p', { class: 'step-label', text: STEP_GUIDE[2].label }));
-    box.appendChild(mappingEl);
-  }
+  if (mappingEl) box.appendChild(buildStepContentWrap('step3', [mappingEl]));
 
-  // STEP4：書き出す。マッピングの直後に置き、STEP3→STEP4の順に読めるようにする。
-  box.appendChild(el('p', { class: 'step-label', text: STEP_GUIDE[3].label }));
-
-  const titleRow = el('div', { class: 'form-title-row' });
-  titleRow.appendChild(el('label', { for: 'form-title-input', text: 'フォームのタイトル（入力フォームの見出し・この様式ファイル自体のファイル名に使われます）' }));
-  const titleInput = el('input', { type: 'text', id: 'form-title-input', value: effectiveFormTitle() });
-  titleInput.addEventListener('input', () => { CURRENT.customTitle = titleInput.value; });
-  titleRow.appendChild(titleInput);
-  box.appendChild(titleRow);
-
-  const fileNameFieldEl = buildFileNameFieldPicker(singles.filter(isReachable));
-  if (fileNameFieldEl) box.appendChild(fileNameFieldEl);
+  // STEP4：項目の運用設定。STEP3で名前を付けた項目に対して、追加のフラグ（必須・
+  // 2次入力画面表示・2次入力）を付ける作業なので、STEP3の直後に置く。
+  box.appendChild(buildStepLabel('step4', 3));
+  box.appendChild(el('p', { class: 'step-memo', text: '💡 必須化・2次入力・一覧表示といった、運用上の使い勝手を整えるための設定です（省略しても書き出しはできます）。' }));
 
   const reachableSingles = singles.filter(isReachable);
   const requiredFieldEl = buildGenericFieldPicker(reachableSingles, {
     idPrefix: 'requiredfield', storeKey: 'requiredFieldIds', title: '必須項目',
     noteText: '入力必須の項目を選べます（複数可）。書き出し前チェックで、未入力のまま書き出そうとした場合に警告します。',
   });
-  if (requiredFieldEl) box.appendChild(requiredFieldEl);
 
-  const reviewFieldEl = buildGenericFieldPicker(reachableSingles, {
-    idPrefix: 'reviewfield', storeKey: 'reviewFieldIds', title: 'レビュー欄',
-    noteText: '2次入力者（レビュアー）が判定・コメント等を書き込む項目を選べます（複数可）。この様式を複数まとめてレビューする画面（一覧表）で、編集可能な列として扱われます。',
+  const secondaryFieldEl = buildGenericFieldPicker(reachableSingles, {
+    idPrefix: 'secondaryfield', storeKey: 'secondaryFieldIds', title: '2次入力欄',
+    noteText: '2次入力者が判定・コメント等を書き込む項目を選べます（複数可）。この様式を複数まとめて2次入力する画面（一覧表）で、編集可能な列として扱われます。',
   });
-  if (reviewFieldEl) box.appendChild(reviewFieldEl);
 
-  // 一覧表示候補項目：ファイル名項目は常に候補へ自動的に含める（同じ項目を2回
-  // チェックさせない、というユーザー承認済みの仕様）。実際にレビュー画面で列として
-  // 表示するかどうかは、事務局ではなく2次入力者（レビュアー）が画面上で選ぶ。
+  // 2次入力画面表示項目：ファイル名項目は常に候補へ自動的に含める（同じ項目を2回
+  // チェックさせない、というユーザー承認済みの仕様）。実際に2次入力画面で列として
+  // 表示するかどうかは、事務局ではなく2次入力者が画面上で選ぶ。
   const fileNameIdSet = new Set(
     reachableSingles
       .map(t => CoreLogic.cellId(t.cells[0]))
       .filter(id => CURRENT.fileNameFieldIds && CURRENT.fileNameFieldIds.has(id))
   );
   const displayCandidateEl = buildGenericFieldPicker(reachableSingles, {
-    idPrefix: 'displaycandidatefield', storeKey: 'displayCandidateFieldIds', title: '一覧表示候補項目',
-    noteText: 'レビュー画面（複数の事業を一覧表で確認する画面）で、見出し列として表示してよい項目を選べます（複数可）。ファイル名に含める項目は自動的に候補へ含まれます。実際にどれを表示するかは2次入力者（レビュアー）が画面上で選びます。',
+    idPrefix: 'displaycandidatefield', storeKey: 'displayCandidateFieldIds', title: '2次入力画面表示項目',
+    noteText: '2次入力画面（複数の事業を一覧表で確認する画面）で、見出し列として表示してよい項目を選べます（複数可）。ファイル名に含める項目は自動的に候補へ含まれます。実際にどれを表示するかは2次入力者が画面上で選びます。',
     forceCheckedIds: fileNameIdSet,
   });
-  if (displayCandidateEl) box.appendChild(displayCandidateEl);
+  box.appendChild(buildStepContentWrap('step4', [requiredFieldEl, displayCandidateEl, secondaryFieldEl]));
 
+  // STEP5：書き出す。
+  box.appendChild(buildStepLabel('step5', 4));
+  box.appendChild(el('p', { class: 'step-memo', text: '💡 ここまでの設定をもとに、入力フォーム・集約ツールを書き出します。' }));
+
+  const titleRow = el('div', { class: 'form-title-row' });
+  titleRow.appendChild(el('label', { for: 'form-title-input', text: 'フォームのタイトル（入力フォームの見出し・この様式ファイル自体のファイル名に使われます）' }));
+  const titleInput = el('input', { type: 'text', id: 'form-title-input', value: effectiveFormTitle() });
+  titleInput.addEventListener('input', () => { CURRENT.customTitle = titleInput.value; });
+  titleRow.appendChild(titleInput);
+
+  const fileNameFieldEl = buildFileNameFieldPicker(singles.filter(isReachable));
+
+  const step5Content = [titleRow, fileNameFieldEl];
+  if (unreachable.length === 0) {
+    step5Content.push(el('p', { class: 'm-note', text: '✅ 現在の設定で、入力欄に入力した内容はすべて書き出されます。問題は見つかりませんでした。' }));
+  }
   const btnRow = el('div', { class: 'm-btnrow' });
   if (unreachable.length === 0) {
     const okBtn = el('button', { text: '🌐 書き出す', type: 'button' });
-    okBtn.addEventListener('click', doExportAsForm);
+    okBtn.addEventListener('click', doExportAsBoth);
     btnRow.appendChild(okBtn);
   } else {
     const forceBtn = el('button', { class: 'secondary', text: 'このまま書き出す（対象セルは空欄扱いになります）', type: 'button' });
-    forceBtn.addEventListener('click', doExportAsForm);
+    forceBtn.addEventListener('click', doExportAsBoth);
     btnRow.appendChild(forceBtn);
   }
-  const aggregatorBtn = el('button', { class: 'secondary', text: '🗂 集約ツールを書き出す', type: 'button' });
-  aggregatorBtn.addEventListener('click', doExportAsAggregator);
-  btnRow.appendChild(aggregatorBtn);
-  box.appendChild(btnRow);
-  box.appendChild(el('p', { class: 'm-note', text: '🗂 集約ツール：各部署が入力フォームで書き出したJSONを複数まとめて読み込み、住民公開用のページ（検索・絞り込みできる一覧・詳細画面）を書き出せる別のツールです。全部署の入力が出揃ってから使ってください。' }));
+  step5Content.push(btnRow);
+  box.appendChild(buildStepContentWrap('step5', step5Content));
 
   // このパネルの主目的が「データ構造の確認」なので、プレビューは折りたたまずに常時表示する
   // （旧仕様では<details>で開閉式だったが、開く一手間自体をなくす）。
@@ -1361,12 +1429,6 @@ function renderCheckPanel() {
   previewSection.appendChild(el('h4', { text: '現在の設定で書き出されるデータ構造' }));
   const previewTablesEl = buildPreviewTables(output);
   previewSection.appendChild(previewTablesEl);
-  const rawDetails = el('details', { class: 'export-preview-raw' });
-  if (CHECK_PANEL_STATE.rawJsonOpen) rawDetails.setAttribute('open', 'open');
-  rawDetails.addEventListener('toggle', () => { CHECK_PANEL_STATE.rawJsonOpen = rawDetails.open; });
-  rawDetails.appendChild(el('summary', { text: '（参考）生のJSONを見る' }));
-  rawDetails.appendChild(el('pre', { text: JSON.stringify(output, null, 1) }));
-  previewSection.appendChild(rawDetails);
   box.appendChild(previewSection);
   previewTablesEl.scrollTop = savedPreviewScrollTop;
 
@@ -1426,7 +1488,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('DOMContentLoaded', init);
   window.__app = {
     handleFile, handleFormHtmlFile, handleAnyFile, extractStructureFromFillerHtml, rebuildAndRender, init,
-    openCellSettings, closeModal, doExportAsForm, doExportAsAggregator, serializeStructure,
+    openCellSettings, closeModal, doExportAsForm, doExportAsAggregator, doExportAsBoth, serializeStructure,
     openManualGroupModal, selectionRowRange, renderCheckPanel,
     selectRowRangeAllColumns, summarizeUnreachableRanges, autoBlockUnreachableCells,
     saveBlob, pickExportDirectory,

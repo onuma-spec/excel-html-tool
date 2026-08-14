@@ -117,7 +117,7 @@ function newFillerPage(structure) {
 
     <div id="mode-select-root">
       <button type="button" id="btn-mode-normal">1次入力</button>
-      <button type="button" id="btn-mode-review" style="display:none">2次以降入力</button>
+      <button type="button" id="btn-mode-secondary" style="display:none">2次以降入力</button>
     </div>
 
     <div id="normal-mode-root" style="display:none">
@@ -140,31 +140,31 @@ function newFillerPage(structure) {
       </div>
     </div>
 
-    <div id="review-root" style="display:none">
-      <button id="btn-close-review">close</button>
-      <div id="review-actions">
-        <input type="file" id="review-file-load" multiple>
-        <button id="review-btn-pick-dir" style="display:none">dir</button>
-        <button id="review-btn-refresh" style="display:none">refresh</button>
+    <div id="secondary-root" style="display:none">
+      <button id="btn-close-secondary">close</button>
+      <div id="secondary-actions">
+        <input type="file" id="secondary-file-load" multiple>
+        <button id="secondary-btn-pick-dir" style="display:none">dir</button>
+        <button id="secondary-btn-refresh" style="display:none">refresh</button>
       </div>
-      <div id="review-print-bar">
+      <div id="secondary-print-bar">
         <button id="btn-bulk-print">bulkprint</button>
       </div>
-      <div id="review-col-toggle"></div>
-      <div id="review-summary"></div>
-      <div id="review-table-root"></div>
-      <div id="review-export-bar">
+      <div id="secondary-col-toggle"></div>
+      <div id="secondary-summary"></div>
+      <div id="secondary-table-root"></div>
+      <div id="secondary-export-bar">
         <button id="btn-bulk-export">bulkexport</button>
       </div>
     </div>
 
-    <div id="review-detail-root-wrap" style="display:none">
+    <div id="secondary-detail-root-wrap" style="display:none">
       <button id="btn-save-detail">save</button>
-      <button id="btn-back-to-review-list">back</button>
+      <button id="btn-back-to-secondary-list">back</button>
       <button id="btn-print-detail">print</button>
-      <div id="review-detail-root"></div>
+      <div id="secondary-detail-root"></div>
     </div>
-    <div id="review-scratch-root" style="display:none"></div>
+    <div id="secondary-scratch-root" style="display:none"></div>
     <div id="bulk-print-root"></div>
     <script>${SRC.core}</script>
     <script>${SRC.grid}</script>
@@ -176,7 +176,7 @@ function newFillerPage(structure) {
   return new JSDOM(html, { runScripts: 'dangerously', url: 'http://localhost/' });
 }
 
-// reviewFieldsが指定された様式ではSTEP1（入力画面の選択）が初期画面になり、
+// secondaryFieldsが指定された様式ではSTEP1（入力画面の選択）が初期画面になり、
 // #grid-rootはまだ描画されない。既存テストの大半は「グリッドが最初から使える」
 // 前提で書かれているため、readyPage()側でenterNormalMode()を呼び1次入力画面まで
 // 進めておく（STEP1自体を検証したいテストはnewFillerPage()を直接使うこと）。
@@ -185,13 +185,13 @@ async function readyPage(structure) {
   await waitFor(() => dom.window.__app && dom.window.__app.STATE);
   dom.window.__app.enterNormalMode();
   // jsdomはwindow.confirmを実装していない（呼ぶとfalsy）。既存テストの大半は
-  // enterReviewMode()が無条件で成功する前提のため、既定でOKを選んだことにしておく
+  // enterSecondaryMode()が無条件で成功する前提のため、既定でOKを選んだことにしておく
   // （confirmのキャンセル挙動を検証したいテストだけ、個別にfalseへ上書きすること）。
   dom.window.confirm = () => true;
   return dom;
 }
 
-// レビュー画面のテスト用に、「あるページの通常グリッドに値を入れてcollectData()する」ことで
+// 2次入力画面のテスト用に、「あるページの通常グリッドに値を入れてcollectData()する」ことで
 // 妥当なJSON（所管部署が書き出した想定のデータ）を作る。手でネスト構造を書き下ろすと
 // buildSectionObjectの実際の出力と食い違うリスクがあるため、実ロジックに作らせる。
 function buildSampleData(dom, values) {
@@ -211,9 +211,9 @@ function buildSampleData(dom, values) {
       return dom;
     }
 
-    await testAsync('reviewFieldsが指定された様式では、STEP1（選択画面）が初期表示される', async () => {
+    await testAsync('secondaryFieldsが指定された様式では、STEP1（選択画面）が初期表示される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
-      structure.reviewFields = ['cell_R3_C4'];
+      structure.secondaryFields = ['cell_R3_C4'];
       const dom = await readyPageRaw(structure);
       const win = dom.window;
       assertEqual(win.document.getElementById('mode-select-root').style.display, '');
@@ -221,7 +221,7 @@ function buildSampleData(dom, values) {
       assertEqual(win.document.getElementById('grid-root').innerHTML, '', 'STEP1の時点ではグリッドはまだ描画されない');
     });
 
-    await testAsync('reviewFieldsが無指定の様式では、STEP1を挟まず直接1次入力（normal）から始まる', async () => {
+    await testAsync('secondaryFieldsが無指定の様式では、STEP1を挟まず直接1次入力（normal）から始まる', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const dom = await readyPageRaw(structure);
       const win = dom.window;
@@ -232,7 +232,7 @@ function buildSampleData(dom, values) {
 
     await testAsync('STEP1で「1次入力」カードを押すと、normal-mode-rootが表示されグリッドが描画される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
-      structure.reviewFields = ['cell_R3_C4'];
+      structure.secondaryFields = ['cell_R3_C4'];
       const dom = await readyPageRaw(structure);
       const win = dom.window;
       win.document.getElementById('btn-mode-normal').click();
@@ -241,19 +241,19 @@ function buildSampleData(dom, values) {
       assertTrue(win.document.getElementById('grid-root').innerHTML.length > 0);
     });
 
-    await testAsync('STEP1で「2次以降入力」カードを押すと、review-rootが表示される', async () => {
+    await testAsync('STEP1で「2次以降入力」カードを押すと、secondary-rootが表示される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
-      structure.reviewFields = ['cell_R3_C4'];
+      structure.secondaryFields = ['cell_R3_C4'];
       const dom = await readyPageRaw(structure);
       const win = dom.window;
-      win.document.getElementById('btn-mode-review').click();
-      assertEqual(win.document.getElementById('review-root').style.display, '');
+      win.document.getElementById('btn-mode-secondary').click();
+      assertEqual(win.document.getElementById('secondary-root').style.display, '');
       assertEqual(win.document.getElementById('mode-select-root').style.display, 'none');
     });
 
     await testAsync('1次入力→「戻る」でSTEP1に戻り、再度1次入力を選ぶと入力途中の値が保たれる（STEP1を経由しただけならgrid-rootは作り直されない）', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
-      structure.reviewFields = ['cell_R3_C4'];
+      structure.secondaryFields = ['cell_R3_C4'];
       const dom = await readyPageRaw(structure);
       const win = dom.window;
       win.__app.enterNormalMode();
@@ -267,20 +267,20 @@ function buildSampleData(dom, values) {
       assertEqual(win.document.getElementById(c3id).value, '入力途中の値', 'STEP1を経由しただけなら1次入力の値は保たれるはず');
     });
 
-    await testAsync('2次以降入力から「戻る」（btn-close-review）でSTEP1に戻る', async () => {
+    await testAsync('2次以降入力から「戻る」（btn-close-secondary）でSTEP1に戻る', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
-      structure.reviewFields = ['cell_R3_C4'];
+      structure.secondaryFields = ['cell_R3_C4'];
       const dom = await readyPageRaw(structure);
       const win = dom.window;
-      win.__app.enterReviewMode();
-      win.document.getElementById('btn-close-review').click();
+      win.__app.enterSecondaryMode();
+      win.document.getElementById('btn-close-secondary').click();
       assertEqual(win.document.getElementById('mode-select-root').style.display, '');
-      assertEqual(win.document.getElementById('review-root').style.display, 'none');
+      assertEqual(win.document.getElementById('secondary-root').style.display, 'none');
     });
 
     await testAsync('hasUnsavedNormalInput：1次入力欄が全て空欄ならfalse、1つでも値があればtrue', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
-      structure.reviewFields = ['cell_R3_C4'];
+      structure.secondaryFields = ['cell_R3_C4'];
       const dom = await readyPageRaw(structure);
       const win = dom.window;
       win.__app.enterNormalMode();
@@ -291,25 +291,25 @@ function buildSampleData(dom, values) {
 
     await testAsync('1次入力欄が空のままなら、確認なしで2次以降入力へ移動できる（confirmが常にfalseでも成功する）', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
-      structure.reviewFields = ['cell_R3_C4'];
+      structure.secondaryFields = ['cell_R3_C4'];
       const dom = await readyPageRaw(structure);
       const win = dom.window;
       win.__app.enterNormalMode();
       win.confirm = () => false; // 常に拒否する設定でも、そもそも確認が要らないので成功するはず
-      win.document.getElementById('btn-mode-review').click();
-      assertEqual(win.document.getElementById('review-root').style.display, '');
+      win.document.getElementById('btn-mode-secondary').click();
+      assertEqual(win.document.getElementById('secondary-root').style.display, '');
     });
 
     await testAsync('1次入力欄に値がある状態で2次以降入力へ移動しようとすると確認が入り、キャンセルすると画面遷移しない', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
-      structure.reviewFields = ['cell_R3_C4'];
+      structure.secondaryFields = ['cell_R3_C4'];
       const dom = await readyPageRaw(structure);
       const win = dom.window;
       win.__app.enterNormalMode();
       win.document.getElementById('cell_R3_C3').value = '入力途中';
       let confirmCalled = false;
       win.confirm = () => { confirmCalled = true; return false; };
-      win.document.getElementById('btn-mode-review').click();
+      win.document.getElementById('btn-mode-secondary').click();
       assertTrue(confirmCalled, '空でないのでconfirmが呼ばれるはず');
       assertEqual(win.document.getElementById('normal-mode-root').style.display, '', 'キャンセルしたので1次入力画面のままのはず');
       assertEqual(win.document.getElementById('cell_R3_C3').value, '入力途中', '入力内容も消えていないはず');
@@ -317,14 +317,14 @@ function buildSampleData(dom, values) {
 
     await testAsync('1次入力欄に値がある状態で確認にOKすると、2次以降入力へ移動しグリッドは空になる', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
-      structure.reviewFields = ['cell_R3_C4'];
+      structure.secondaryFields = ['cell_R3_C4'];
       const dom = await readyPageRaw(structure);
       const win = dom.window;
       win.__app.enterNormalMode();
       win.document.getElementById('cell_R3_C3').value = '入力途中';
       win.confirm = () => true;
-      win.document.getElementById('btn-mode-review').click();
-      assertEqual(win.document.getElementById('review-root').style.display, '');
+      win.document.getElementById('btn-mode-secondary').click();
+      assertEqual(win.document.getElementById('secondary-root').style.display, '');
       assertEqual(win.document.getElementById('grid-root').innerHTML, '');
     });
   });
@@ -483,7 +483,7 @@ function buildSampleData(dom, values) {
   });
 
   await runSuiteAsync('filler_app: 1次/2次入力欄の視覚的色分け', async () => {
-    await testAsync('reviewFields未指定なら、どの入力セルにも色分けクラスが付かない', async () => {
+    await testAsync('secondaryFields未指定なら、どの入力セルにも色分けクラスが付かない', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const dom = await readyPage(structure);
       const win = dom.window;
@@ -491,46 +491,60 @@ function buildSampleData(dom, values) {
       assertTrue(tds.length > 0);
       tds.forEach(td => {
         assertFalse(td.classList.contains('cell-field-primary'));
-        assertFalse(td.classList.contains('cell-field-review'));
+        assertFalse(td.classList.contains('cell-field-secondary'));
       });
     });
 
-    await testAsync('reviewFields指定時、レビュー欄のセルはcell-field-review、それ以外の入力セルはcell-field-primaryになる', async () => {
+    await testAsync('secondaryFields指定時、2次入力欄のセルはcell-field-secondary、それ以外の入力セルはcell-field-primaryになる', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       const dom = await readyPage(structure);
       const win = dom.window;
-      const reviewTd = win.document.getElementById(c4id).closest('td');
-      assertTrue(reviewTd.classList.contains('cell-field-review'));
-      assertFalse(reviewTd.classList.contains('cell-field-primary'));
+      const secondaryTd = win.document.getElementById(c4id).closest('td');
+      assertTrue(secondaryTd.classList.contains('cell-field-secondary'));
+      assertFalse(secondaryTd.classList.contains('cell-field-primary'));
 
       const c3id = 'cell_R3_C3';
       const primaryTd = win.document.getElementById(c3id).closest('td');
       assertTrue(primaryTd.classList.contains('cell-field-primary'));
-      assertFalse(primaryTd.classList.contains('cell-field-review'));
+      assertFalse(primaryTd.classList.contains('cell-field-secondary'));
     });
 
-    await testAsync('reviewFields指定時、凡例（#field-legend）が表示される。未指定なら非表示のまま', async () => {
-      const withReview = await readyPage((() => { const s = buildStructureFromFixture(FIXTURE); s.reviewFields = ['cell_R3_C4']; return s; })());
-      assertEqual(withReview.window.document.getElementById('field-legend').style.display, '');
+    await testAsync('secondaryFields指定時、凡例（#field-legend）が表示される。未指定なら非表示のまま', async () => {
+      const withSecondary = await readyPage((() => { const s = buildStructureFromFixture(FIXTURE); s.secondaryFields = ['cell_R3_C4']; return s; })());
+      assertEqual(withSecondary.window.document.getElementById('field-legend').style.display, '');
 
-      const withoutReview = await readyPage(buildStructureFromFixture(FIXTURE));
-      assertEqual(withoutReview.window.document.getElementById('field-legend').style.display, 'none');
+      const withoutSecondary = await readyPage(buildStructureFromFixture(FIXTURE));
+      assertEqual(withoutSecondary.window.document.getElementById('field-legend').style.display, 'none');
     });
 
-    await testAsync('レビュー詳細画面（openReviewDetail）でも同じ色分けが適用される', async () => {
+    await testAsync('2次入力詳細画面（openSecondaryDetail）でも同じ色分けが適用される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.displayCandidateFields = [c3id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
-      win.__app.openReviewDetail(win.__app.REVIEW.records[0]);
-      const reviewTd = win.document.getElementById(c4id).closest('td');
-      assertTrue(reviewTd.classList.contains('cell-field-review'), '詳細画面でもレビュー欄セルにcell-field-reviewが付くはず');
+      win.__app.openSecondaryDetail(win.__app.SECONDARY.records[0]);
+      const secondaryTd = win.document.getElementById(c4id).closest('td');
+      assertTrue(secondaryTd.classList.contains('cell-field-secondary'), '詳細画面でも2次入力欄セルにcell-field-secondaryが付くはず');
+    });
+
+    await testAsync('一覧表で入力しただけ（詳細画面で保存前）の2次入力欄も、詳細画面を開いた時点で反映される', async () => {
+      const structure = buildStructureFromFixture(FIXTURE);
+      const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
+      structure.secondaryFields = [c4id];
+      const dom = await readyPage(structure);
+      const win = dom.window;
+      const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
+      win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
+      const record = win.__app.SECONDARY.records[0];
+      record.secondaryValues[c4id] = 'まだ保存していない入力';
+      win.__app.openSecondaryDetail(record);
+      assertEqual(win.document.getElementById(c4id).value, 'まだ保存していない入力', '一覧の直接入力（未保存）が詳細画面を開いた時点で表示されるはず');
     });
   });
 
@@ -564,30 +578,30 @@ function buildSampleData(dom, values) {
       assertTrue(table.textContent.includes('事業A'), '現在の入力値がテキストとして反映されているはず');
     });
 
-    await testAsync('レビュー詳細画面の印刷ボタン（#btn-print-detail）をクリックしても例外を投げない', async () => {
+    await testAsync('2次入力詳細画面の印刷ボタン（#btn-print-detail）をクリックしても例外を投げない', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
-      win.__app.openReviewDetail(win.__app.REVIEW.records[0]);
+      win.__app.openSecondaryDetail(win.__app.SECONDARY.records[0]);
       let called = false;
       win.print = () => { called = true; };
       win.document.getElementById('btn-print-detail').click();
       assertTrue(called);
     });
 
-    await testAsync('レビュー詳細画面の印刷ボタンも、同じ#bulk-print-rootの仕組みでスナップショットを1件だけ描画する', async () => {
+    await testAsync('2次入力詳細画面の印刷ボタンも、同じ#bulk-print-rootの仕組みでスナップショットを1件だけ描画する', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
-      win.__app.openReviewDetail(win.__app.REVIEW.records[0]);
+      win.__app.openSecondaryDetail(win.__app.SECONDARY.records[0]);
       win.document.getElementById(c4id).value = '判定OK';
       win.print = () => {};
       win.document.getElementById('btn-print-detail').click();
@@ -595,7 +609,7 @@ function buildSampleData(dom, values) {
       assertEqual(sections.length, 1);
       const table = sections[0].querySelector('table.print-grid');
       assertTrue(table.textContent.includes('事業A'));
-      assertTrue(table.textContent.includes('判定OK'), 'レビュー欄に入力した内容も反映されるはず');
+      assertTrue(table.textContent.includes('判定OK'), '2次入力欄に入力した内容も反映されるはず');
     });
   });
 
@@ -666,14 +680,14 @@ function buildSampleData(dom, values) {
       return dom;
     }
 
-    // reviewFieldsを1つ持たせ、init()がSTEP1（選択画面）で止まり自動でenterNormalMode()を
-    // 呼ばないようにする。reviewFields未指定の様式（1段階しか無い様式）はinit()自身が
+    // secondaryFieldsを1つ持たせ、init()がSTEP1（選択画面）で止まり自動でenterNormalMode()を
+    // 呼ばないようにする。secondaryFields未指定の様式（1段階しか無い様式）はinit()自身が
     // 即座にenterNormalMode()を呼んでしまうため、そのままではテスト側がenterNormalMode()を
     // 呼ぶ時点で既にnormalModeRendered=trueとなり、offerDraftRestoreIfAny()（初回描画時のみ
     // 実行）を検証できない。
     function buildDraftTestStructure() {
       const structure = buildSingleLabelRowStructure();
-      structure.reviewFields = ['cell_R1_C2'];
+      structure.secondaryFields = ['cell_R1_C2'];
       return structure;
     }
 
@@ -848,24 +862,24 @@ function buildSampleData(dom, values) {
     });
   });
 
-  await runSuiteAsync('filler_app: レビュー画面（複数JSON読込・一覧表・詳細）', async () => {
-    await testAsync('レビュー欄が指定されていればSTEP1の「2次以降入力」カードが表示される', async () => {
+  await runSuiteAsync('filler_app: 2次入力画面（複数JSON読込・一覧表・詳細）', async () => {
+    await testAsync('2次入力欄が指定されていればSTEP1の「2次以降入力」カードが表示される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
-      structure.reviewFields = ['cell_R3_C3'];
+      structure.secondaryFields = ['cell_R3_C3'];
       const dom = await readyPage(structure);
-      assertEqual(dom.window.document.getElementById('btn-mode-review').style.display, '');
+      assertEqual(dom.window.document.getElementById('btn-mode-secondary').style.display, '');
     });
 
-    await testAsync('レビュー欄が無指定ならSTEP1の「2次以降入力」カードは表示されない', async () => {
+    await testAsync('2次入力欄が無指定ならSTEP1の「2次以降入力」カードは表示されない', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const dom = await readyPage(structure);
-      assertEqual(dom.window.document.getElementById('btn-mode-review').style.display, 'none');
+      assertEqual(dom.window.document.getElementById('btn-mode-secondary').style.display, 'none');
     });
 
     await testAsync('複数JSONを読み込むと件数分のレコードが追加され、同名ファイルは重複追加されない', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.displayCandidateFields = [c3id];
       const dom = await readyPage(structure);
       const win = dom.window;
@@ -874,147 +888,147 @@ function buildSampleData(dom, values) {
 
       let added = win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }, { fileName: 'b.json', data: data2 }]);
       assertEqual(added, 2);
-      assertEqual(win.__app.REVIEW.records.length, 2);
+      assertEqual(win.__app.SECONDARY.records.length, 2);
 
       added = win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
       assertEqual(added, 0, '同名ファイルは既存レコードを上書きしないはず');
-      assertEqual(win.__app.REVIEW.records.length, 2);
+      assertEqual(win.__app.SECONDARY.records.length, 2);
     });
 
-    await testAsync('displayValues/reviewValuesが元データから正しく抽出される', async () => {
+    await testAsync('displayValues/secondaryValuesが元データから正しく抽出される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.displayCandidateFields = [c3id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '判定OK' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
-      const record = win.__app.REVIEW.records[0];
+      const record = win.__app.SECONDARY.records[0];
       assertEqual(record.displayValues[c3id], '事業A');
-      assertEqual(record.reviewValues[c4id], '判定OK');
+      assertEqual(record.secondaryValues[c4id], '判定OK');
     });
 
-    await testAsync('isRecordComplete：レビュー欄が全て埋まっていれば完了、1つでも空なら未完了', async () => {
+    await testAsync('isRecordComplete：2次入力欄が全て埋まっていれば完了、1つでも空なら未完了', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c3id, c4id];
+      structure.secondaryFields = [c3id, c4id];
       const dom = await readyPage(structure);
       const win = dom.window;
-      const complete = { fileName: 'x.json', data: {}, reviewValues: { [c3id]: '判定', [c4id]: 'コメント' } };
-      const incomplete = { fileName: 'y.json', data: {}, reviewValues: { [c3id]: '判定', [c4id]: '' } };
+      const complete = { fileName: 'x.json', data: {}, secondaryValues: { [c3id]: '判定', [c4id]: 'コメント' } };
+      const incomplete = { fileName: 'y.json', data: {}, secondaryValues: { [c3id]: '判定', [c4id]: '' } };
       assertTrue(win.__app.isRecordComplete(complete));
       assertFalse(win.__app.isRecordComplete(incomplete));
     });
 
-    await testAsync('一覧表：入力すると record.reviewValues と状態表示（未完了→完了）が更新される', async () => {
+    await testAsync('一覧表：入力すると record.secondaryValues と状態表示（未完了→完了）が更新される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.displayCandidateFields = [c3id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
-      win.__app.enterReviewMode();
+      win.__app.enterSecondaryMode();
 
-      const rows = win.document.querySelectorAll('#review-table-root tbody tr');
+      const rows = win.document.querySelectorAll('#secondary-table-root tbody tr');
       assertEqual(rows.length, 1);
-      assertEqual(rows[0].querySelector('.review-status-cell').textContent, '未完了');
+      assertEqual(rows[0].querySelector('.secondary-status-cell').textContent, '未完了');
 
       const textarea = rows[0].querySelector('textarea');
       textarea.value = '判定OK';
       textarea.dispatchEvent(new win.Event('input', { bubbles: true }));
 
-      assertEqual(win.__app.REVIEW.records[0].reviewValues[c4id], '判定OK');
-      assertEqual(rows[0].querySelector('.review-status-cell').textContent, '✅完了');
+      assertEqual(win.__app.SECONDARY.records[0].secondaryValues[c4id], '判定OK');
+      assertEqual(rows[0].querySelector('.secondary-status-cell').textContent, '✅完了');
     });
 
     await testAsync('列表示トグルを外すと、一覧表の列数（ヘッダー・行とも）が1つ減る', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.displayCandidateFields = [c3id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
-      win.__app.enterReviewMode();
+      win.__app.enterSecondaryMode();
 
-      const beforeCount = win.document.querySelectorAll('#review-table-root thead th').length;
+      const beforeCount = win.document.querySelectorAll('#secondary-table-root thead th').length;
       win.document.getElementById('colvis_' + c3id).click();
-      const afterCount = win.document.querySelectorAll('#review-table-root thead th').length;
+      const afterCount = win.document.querySelectorAll('#secondary-table-root thead th').length;
       assertEqual(afterCount, beforeCount - 1, '表示候補列を1つ外したのでヘッダーが1列減るはず');
-      const bodyRowCells = win.document.querySelectorAll('#review-table-root tbody tr')[0].children.length;
+      const bodyRowCells = win.document.querySelectorAll('#secondary-table-root tbody tr')[0].children.length;
       assertEqual(bodyRowCells, afterCount, 'ヘッダーと行のセル数は一致するはず');
     });
 
     await testAsync('詳細画面は所管部署の入力内容を表示し、編集可能（全セル誰でも入力できる方針のため読み取り専用ではない）', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.displayCandidateFields = [c3id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
-      win.__app.enterReviewMode();
-      assertEqual(win.document.getElementById('grid-root').innerHTML, '', 'レビュー画面ではgrid-rootは空になっているはず');
+      win.__app.enterSecondaryMode();
+      assertEqual(win.document.getElementById('grid-root').innerHTML, '', '2次入力画面ではgrid-rootは空になっているはず');
 
-      win.__app.openReviewDetail(win.__app.REVIEW.records[0]);
-      assertEqual(win.document.getElementById('review-detail-root-wrap').style.display, '');
+      win.__app.openSecondaryDetail(win.__app.SECONDARY.records[0]);
+      assertEqual(win.document.getElementById('secondary-detail-root-wrap').style.display, '');
       const detailInput = win.document.getElementById(c3id);
       assertTrue(!!detailInput, '詳細画面にも同じcellIdの入力欄が描画されるはず');
       assertEqual(detailInput.value, '事業A');
       assertFalse(detailInput.disabled, '全セル編集可能の方針のため、詳細画面もdisabledではないはず');
     });
 
-    await testAsync('詳細画面で保存せずに戻ると（backToReviewListFromDetail）、レコードの内容は変更されない', async () => {
+    await testAsync('詳細画面で保存せずに戻ると（backToSecondaryListFromDetail）、レコードの内容は変更されない', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.displayCandidateFields = [c3id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
-      win.__app.openReviewDetail(win.__app.REVIEW.records[0]);
+      win.__app.openSecondaryDetail(win.__app.SECONDARY.records[0]);
       win.document.getElementById(c3id).value = '編集したが保存しない';
 
-      win.__app.backToReviewListFromDetail();
-      assertEqual(win.document.getElementById('review-detail-root').innerHTML, '');
-      assertEqual(win.document.getElementById('review-root').style.display, '');
-      assertEqual(win.__app.REVIEW.records[0].displayValues[c3id], '事業A', '保存しなかったので元の値のまま残るはず');
+      win.__app.backToSecondaryListFromDetail();
+      assertEqual(win.document.getElementById('secondary-detail-root').innerHTML, '');
+      assertEqual(win.document.getElementById('secondary-root').style.display, '');
+      assertEqual(win.__app.SECONDARY.records[0].displayValues[c3id], '事業A', '保存しなかったので元の値のまま残るはず');
     });
 
-    await testAsync('詳細画面で編集して保存すると（saveDetailAndBackToList）、record.data/displayValues/reviewValuesに反映される', async () => {
+    await testAsync('詳細画面で編集して保存すると（saveDetailAndBackToList）、record.data/displayValues/secondaryValuesに反映される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.displayCandidateFields = [c3id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
-      win.__app.openReviewDetail(win.__app.REVIEW.records[0]);
+      win.__app.openSecondaryDetail(win.__app.SECONDARY.records[0]);
       win.document.getElementById(c3id).value = '事業A（詳細画面で修正）';
-      win.document.getElementById(c4id).value = '詳細画面から入力したレビュー結果';
+      win.document.getElementById(c4id).value = '詳細画面から入力した2次入力結果';
 
       win.__app.saveDetailAndBackToList();
-      assertEqual(win.document.getElementById('review-detail-root-wrap').style.display, 'none', '保存後は一覧画面に戻るはず');
-      const record = win.__app.REVIEW.records[0];
+      assertEqual(win.document.getElementById('secondary-detail-root-wrap').style.display, 'none', '保存後は一覧画面に戻るはず');
+      const record = win.__app.SECONDARY.records[0];
       assertEqual(record.displayValues[c3id], '事業A（詳細画面で修正）');
-      assertEqual(record.reviewValues[c4id], '詳細画面から入力したレビュー結果');
+      assertEqual(record.secondaryValues[c4id], '詳細画面から入力した2次入力結果');
       assertEqual(record.data['シート']['申込日_col3'], '事業A（詳細画面で修正）', 'record.data自体も更新されるはず');
       assertTrue(win.document.getElementById('status').textContent.includes('保存しました'));
     });
 
-    await testAsync('レビュー画面から「戻る」でSTEP1に戻り、そこから1次入力を選び直すとグリッドが再描画される', async () => {
+    await testAsync('2次入力画面から「戻る」でSTEP1に戻り、そこから1次入力を選び直すとグリッドが再描画される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
-      structure.reviewFields = ['cell_R3_C4'];
+      structure.secondaryFields = ['cell_R3_C4'];
       const dom = await readyPage(structure);
       const win = dom.window;
-      win.__app.enterReviewMode();
+      win.__app.enterSecondaryMode();
       assertEqual(win.document.getElementById('grid-root').innerHTML, '');
       win.__app.backToModeSelect();
       assertEqual(win.document.getElementById('mode-select-root').style.display, '', 'STEP1（選択画面）に戻るはず');
@@ -1024,58 +1038,58 @@ function buildSampleData(dom, values) {
       assertEqual(win.document.getElementById('normal-mode-root').style.display, '');
     });
 
-    await testAsync('mergedDataForExportは、所管部署の元データにレビュー欄の現在値をマージする', async () => {
+    await testAsync('mergedDataForExportは、所管部署の元データに2次入力欄の現在値をマージする', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
-      const record = win.__app.REVIEW.records[0];
-      record.reviewValues[c4id] = 'レビュー結果';
+      const record = win.__app.SECONDARY.records[0];
+      record.secondaryValues[c4id] = '2次入力結果';
       const merged = win.__app.mergedDataForExport(record);
       assertEqual(merged['シート']['申込日_col3'], '事業A', '所管部署の元データは維持されるはず');
-      assertEqual(merged['シート']['申込日_col4'], 'レビュー結果', 'レビュー欄の現在値がマージされるはず');
+      assertEqual(merged['シート']['申込日_col4'], '2次入力結果', '2次入力欄の現在値がマージされるはず');
     });
 
     await testAsync('buildExportFileNameForRecordは、fileNameFieldsの値（displayValues経由）を使ってファイル名を組み立てる', async () => {
       const structure = buildStructureFromFixture(FIXTURE, 'テストタイトル');
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.fileNameFields = [c3id];
       structure.displayCandidateFields = [c3id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
-      const name = win.__app.buildExportFileNameForRecord(win.__app.REVIEW.records[0]);
+      const name = win.__app.buildExportFileNameForRecord(win.__app.SECONDARY.records[0]);
       assertTrue(name.startsWith('テストタイトル_事業A_'), `タイトル＋事業名で始まるはず: "${name}"`);
     });
 
-    await testAsync('複数ファイル選択（review-file-load）からの読込で、レコードが追加される', async () => {
+    await testAsync('複数ファイル選択（secondary-file-load）からの読込で、レコードが追加される', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.displayCandidateFields = [c3id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
       const file = new win.File([JSON.stringify(data1)], 'a.json', { type: 'application/json' });
-      const input = win.document.getElementById('review-file-load');
+      const input = win.document.getElementById('secondary-file-load');
       Object.defineProperty(input, 'files', { value: [file], configurable: true });
       input.dispatchEvent(new win.Event('change'));
-      await waitFor(() => win.__app.REVIEW.records.length === 1);
-      assertEqual(win.__app.REVIEW.records[0].fileName, 'a.json');
+      await waitFor(() => win.__app.SECONDARY.records.length === 1);
+      assertEqual(win.__app.SECONDARY.records[0].fileName, 'a.json');
     });
   });
 
   await runSuiteAsync('filler_app: 一覧の絞り込み（Excel風フィルタ・ステータス）', async () => {
-    // 3件（部署A×2・部署B×1、うち1件はレビュー欄記入済み＝完了）を読み込んだ状態を作る共通処理。
+    // 3件（部署A×2・部署B×1、うち1件は2次入力欄記入済み＝完了）を読み込んだ状態を作る共通処理。
     async function setupThreeRecords() {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.displayCandidateFields = [c3id];
       const dom = await readyPage(structure);
       const win = dom.window;
@@ -1087,31 +1101,31 @@ function buildSampleData(dom, values) {
         { fileName: 'a2.json', data: dataA2 },
         { fileName: 'b1.json', data: dataB1 },
       ]);
-      win.__app.REVIEW.records.find(r => r.fileName === 'a1.json').reviewValues[c4id] = '判定済み';
-      win.__app.enterReviewMode();
+      win.__app.SECONDARY.records.find(r => r.fileName === 'a1.json').secondaryValues[c4id] = '判定済み';
+      win.__app.enterSecondaryMode();
       return { win, c3id, c4id };
     }
 
     await testAsync('絞り込みなし（初期状態）では全件が表示される', async () => {
       const { win } = await setupThreeRecords();
-      const rows = win.document.querySelectorAll('#review-tbody tr');
+      const rows = win.document.querySelectorAll('#secondary-tbody tr');
       assertEqual(rows.length, 3);
-      assertEqual(win.document.getElementById('review-summary').textContent, '3件中 1件 レビュー完了');
+      assertEqual(win.document.getElementById('secondary-summary').textContent, '3件中 1件 2次入力完了');
     });
 
-    await testAsync('レビュー欄（入力欄）のtdにはreview-input-cellクラスが付き、識別列のtdには付かない', async () => {
+    await testAsync('2次入力欄（入力欄）のtdにはsecondary-input-cellクラスが付き、識別列のtdには付かない', async () => {
       const { win } = await setupThreeRecords();
-      const firstRow = win.document.querySelector('#review-tbody tr');
+      const firstRow = win.document.querySelector('#secondary-tbody tr');
       const cells = [...firstRow.children];
-      const inputCells = cells.filter(td => td.classList.contains('review-input-cell'));
-      assertEqual(inputCells.length, 1, 'reviewFieldsは1項目だけ指定しているのでtdも1つのはず');
-      assertTrue(!!inputCells[0].querySelector('textarea'), 'review-input-cellの中にはレビュー欄のtextareaがあるはず');
-      assertFalse(cells[0].classList.contains('review-input-cell'), '識別列（事業名）のtdには付かないはず');
+      const inputCells = cells.filter(td => td.classList.contains('secondary-input-cell'));
+      assertEqual(inputCells.length, 1, 'secondaryFieldsは1項目だけ指定しているのでtdも1つのはず');
+      assertTrue(!!inputCells[0].querySelector('textarea'), 'secondary-input-cellの中には2次入力欄のtextareaがあるはず');
+      assertFalse(cells[0].classList.contains('secondary-input-cell'), '識別列（事業名）のtdには付かないはず');
     });
 
     await testAsync('「状態」列にも列見出しの▼（絞り込み方法が1種類に統一されている）が付く', async () => {
       const { win } = await setupThreeRecords();
-      const headCells = [...win.document.querySelectorAll('#review-table-root thead th')];
+      const headCells = [...win.document.querySelectorAll('#secondary-table-root thead th')];
       const statusTh = headCells.find(th => th.textContent.startsWith('状態'));
       assertTrue(!!statusTh, '状態列のth自体は存在するはず');
       assertTrue(!!statusTh.querySelector('.col-filter'), '状態列にも識別列と同じ▼フィルタが付くはず');
@@ -1124,10 +1138,10 @@ function buildSampleData(dom, values) {
       cb.checked = false;
       cb.dispatchEvent(new win.Event('change'));
 
-      const rows = win.document.querySelectorAll('#review-tbody tr');
+      const rows = win.document.querySelectorAll('#secondary-tbody tr');
       assertEqual(rows.length, 1, '部署Aの2件が絞り込まれ、部署Bの1件だけ残るはず');
       assertTrue(rows[0].textContent.includes('部署B'));
-      assertTrue(win.document.getElementById('review-summary').textContent.includes('絞り込み中'));
+      assertTrue(win.document.getElementById('secondary-summary').textContent.includes('絞り込み中'));
     });
 
     await testAsync('列フィルタのチェック変更では、thead（<details>の開閉状態含む）は再描画されない', async () => {
@@ -1164,18 +1178,18 @@ function buildSampleData(dom, values) {
       assertEqual(win.document.querySelectorAll('.col-filter-panel').length, 0);
     });
 
-    await testAsync('「状態」列の▼で「未完了」を外すと、レビュー欄が埋まっている行だけ表示される', async () => {
+    await testAsync('「状態」列の▼で「未完了」を外すと、2次入力欄が埋まっている行だけ表示される', async () => {
       const { win } = await setupThreeRecords();
       uncheckFilterValue(win, '未完了');
-      const rows = win.document.querySelectorAll('#review-tbody tr');
+      const rows = win.document.querySelectorAll('#secondary-tbody tr');
       assertEqual(rows.length, 1);
       assertTrue(rows[0].textContent.includes('部署A'));
     });
 
-    await testAsync('「状態」列の▼で「完了」を外すと、レビュー欄が空欄の行だけ表示される', async () => {
+    await testAsync('「状態」列の▼で「完了」を外すと、2次入力欄が空欄の行だけ表示される', async () => {
       const { win } = await setupThreeRecords();
       uncheckFilterValue(win, '完了');
-      const rows = win.document.querySelectorAll('#review-tbody tr');
+      const rows = win.document.querySelectorAll('#secondary-tbody tr');
       assertEqual(rows.length, 2);
     });
 
@@ -1184,7 +1198,7 @@ function buildSampleData(dom, values) {
       uncheckFilterValue(win, '部署B'); // 部署Aの2件（1完了・1未完了）だけに絞る
       uncheckFilterValue(win, '未完了');
 
-      const rows = win.document.querySelectorAll('#review-tbody tr');
+      const rows = win.document.querySelectorAll('#secondary-tbody tr');
       assertEqual(rows.length, 1, '部署A かつ 完了、の1件だけになるはず');
     });
 
@@ -1194,10 +1208,10 @@ function buildSampleData(dom, values) {
         .find(l => l.textContent === '部署A').querySelector('input');
       cb.checked = false;
       cb.dispatchEvent(new win.Event('change'));
-      assertEqual(win.document.querySelectorAll('#review-tbody tr').length, 1, '絞り込みが効いている前提の確認');
+      assertEqual(win.document.querySelectorAll('#secondary-tbody tr').length, 1, '絞り込みが効いている前提の確認');
 
-      win.document.getElementById('colvis_' + c3id).click(); // 列を非表示化（renderReviewTableが全体再描画）
-      assertEqual(win.document.querySelectorAll('#review-tbody tr').length, 3, '列を隠すとその列のフィルタは無視され全件表示に戻るはず');
+      win.document.getElementById('colvis_' + c3id).click(); // 列を非表示化（renderSecondaryTableが全体再描画）
+      assertEqual(win.document.querySelectorAll('#secondary-tbody tr').length, 3, '列を隠すとその列のフィルタは無視され全件表示に戻るはず');
     });
   });
 
@@ -1205,14 +1219,14 @@ function buildSampleData(dom, values) {
     async function setupTwoRecordsForPrint() {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.displayCandidateFields = [c3id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const dataA = buildSampleData(dom, { [c3id]: '部署A', [c4id]: '判定OK' });
       const dataB = buildSampleData(dom, { [c3id]: '部署B', [c4id]: '' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: dataA }, { fileName: 'b.json', data: dataB }]);
-      win.__app.enterReviewMode();
+      win.__app.enterSecondaryMode();
       return { win, c3id, c4id };
     }
 
@@ -1233,8 +1247,20 @@ function buildSampleData(dom, values) {
       win.print = () => {};
       win.__app.bulkPrintFiltered();
       const sections = win.document.querySelectorAll('#bulk-print-root .bulk-print-record');
-      assertEqual(sections.length, 1, 'レビュー完了の1件だけが一括印刷の対象になるはず');
+      assertEqual(sections.length, 1, '2次入力完了の1件だけが一括印刷の対象になるはず');
       assertTrue(sections[0].textContent.includes('a.json'));
+    });
+
+    await testAsync('一覧表で入力しただけ（詳細画面で保存前）の2次入力欄も、一括印刷に反映される', async () => {
+      const { win, c4id } = await setupTwoRecordsForPrint();
+      const record = win.__app.SECONDARY.records[1]; // b.json（c4idを空欄で読み込んだ方）
+      record.secondaryValues[c4id] = 'まだ保存していない入力';
+      win.print = () => {};
+      win.__app.bulkPrintFiltered();
+      const sections = win.document.querySelectorAll('#bulk-print-root .bulk-print-record');
+      const target = Array.from(sections).find(s => s.textContent.includes('b.json'));
+      assertTrue(!!target, 'b.jsonのスナップショットが見つかるはず');
+      assertTrue(target.textContent.includes('まだ保存していない入力'), '一覧の直接入力（未保存）が一括印刷に反映されるはず');
     });
 
     await testAsync('複数レコード分のスナップショットを並べても、クローンされたテーブルにid属性が残らない（重複IDを避ける）', async () => {
@@ -1285,10 +1311,24 @@ function buildSampleData(dom, values) {
         },
       };
     }
+    // 同名ファイルが既に存在する状態を再現する版（一括書き出しの事前確認テスト用）。
+    function makeMockDirHandleWithExisting(win, existingFileNames) {
+      const files = new Set(existingFileNames || []);
+      const written = {};
+      return {
+        name: 'mock-folder', written,
+        async getFileHandle(name, opts) {
+          const exists = files.has(name);
+          if (!exists && !(opts && opts.create)) { const err = new Error('not found'); err.name = 'NotFoundError'; throw err; }
+          files.add(name);
+          return { async createWritable() { return { async write(blob) { written[name] = await blobToText(win, blob); }, async close() {} }; } };
+        },
+      };
+    }
     async function setupTwoRecordsForExport() {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.fileNameFields = [c3id];
       structure.displayCandidateFields = [c3id];
       const dom = await readyPage(structure);
@@ -1296,7 +1336,7 @@ function buildSampleData(dom, values) {
       const dataA = buildSampleData(dom, { [c3id]: '部署A', [c4id]: '判定OK' });
       const dataB = buildSampleData(dom, { [c3id]: '部署B', [c4id]: '' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: dataA }, { fileName: 'b.json', data: dataB }]);
-      win.__app.enterReviewMode();
+      win.__app.enterSecondaryMode();
       return { win, c3id, c4id };
     }
 
@@ -1319,6 +1359,52 @@ function buildSampleData(dom, values) {
       assertEqual(win.document.getElementById('status').textContent, '2件を書き出しました。');
     });
 
+    await testAsync('書き出し先フォルダ指定・同名ファイルなし：確認ダイアログを出さずに書き出す', async () => {
+      const { win } = await setupTwoRecordsForExport();
+      const dirHandle = makeMockDirHandle(win);
+      win.__app.setExportDirHandle(dirHandle);
+      let confirmCalled = false;
+      win.confirm = () => { confirmCalled = true; return true; };
+      win.__app.bulkExportFiltered();
+      await waitFor(() => Object.keys(dirHandle.written).length === 2);
+      assertFalse(confirmCalled, '同名ファイルが1件も無ければ確認ダイアログは出ないはず');
+    });
+
+    await testAsync('書き出し先フォルダ指定・同名ファイルあり：確認は1回だけ出て、OKなら個別確認なしで全件上書きする', async () => {
+      const { win } = await setupTwoRecordsForExport();
+      // 1回目：まだファイルが無い状態で書き出し、実際に使われるファイル名を把握する
+      const firstDir = makeMockDirHandle(win);
+      win.__app.setExportDirHandle(firstDir);
+      win.__app.bulkExportFiltered();
+      await waitFor(() => Object.keys(firstDir.written).length === 2);
+      const filenames = Object.keys(firstDir.written);
+
+      // 2回目：同じファイル名が既に存在する状態を再現し、確認ダイアログの呼び出し回数を数える
+      const secondDir = makeMockDirHandleWithExisting(win, filenames);
+      win.__app.setExportDirHandle(secondDir);
+      let confirmCount = 0;
+      win.confirm = () => { confirmCount++; return true; };
+      win.__app.bulkExportFiltered();
+      await waitFor(() => Object.keys(secondDir.written).length === 2);
+      assertEqual(confirmCount, 1, '同名ファイルが2件あっても確認ダイアログは1回だけのはず（以前は1件ごとに毎回出ていた）');
+    });
+
+    await testAsync('書き出し先フォルダ指定・同名ファイルあり：確認でキャンセルすると1件も書き出さない', async () => {
+      const { win } = await setupTwoRecordsForExport();
+      const firstDir = makeMockDirHandle(win);
+      win.__app.setExportDirHandle(firstDir);
+      win.__app.bulkExportFiltered();
+      await waitFor(() => Object.keys(firstDir.written).length === 2);
+      const filenames = Object.keys(firstDir.written);
+
+      const secondDir = makeMockDirHandleWithExisting(win, filenames);
+      win.__app.setExportDirHandle(secondDir);
+      win.confirm = () => false;
+      await win.__app.bulkExportFiltered();
+      assertEqual(Object.keys(secondDir.written).length, 0, 'キャンセルしたので1件も書き出されないはず');
+      assertTrue(win.document.getElementById('status').textContent.includes('中止'));
+    });
+
     await testAsync('「状態」列の▼で絞り込み中に呼ぶと、絞り込んだ件数分だけ書き出し対象になる', async () => {
       const { win } = await setupTwoRecordsForExport();
       uncheckFilterValue(win, '未完了');
@@ -1326,7 +1412,7 @@ function buildSampleData(dom, values) {
       let clickCount = 0;
       win.HTMLAnchorElement.prototype.click = function () { clickCount++; };
       win.__app.bulkExportFiltered();
-      assertEqual(clickCount, 1, 'レビュー完了の1件だけが対象になるはず');
+      assertEqual(clickCount, 1, '2次入力完了の1件だけが対象になるはず');
       assertEqual(win.document.getElementById('status').textContent, '1件を書き出しました。');
     });
 
@@ -1504,23 +1590,23 @@ function buildSampleData(dom, values) {
       assertTrue(status.includes('指定フォルダへの保存に失敗したため'), status);
     });
 
-    await testAsync('レビュー画面の個別「書き出す」ボタンもEXPORT_DIR_HANDLEを尊重する', async () => {
+    await testAsync('2次入力画面の個別「書き出す」ボタンもEXPORT_DIR_HANDLEを尊重する', async () => {
       const structure = buildStructureFromFixture(FIXTURE);
       const c3id = 'cell_R3_C3', c4id = 'cell_R3_C4';
-      structure.reviewFields = [c4id];
+      structure.secondaryFields = [c4id];
       structure.fileNameFields = [c3id];
       const dom = await readyPage(structure);
       const win = dom.window;
       const data1 = buildSampleData(dom, { [c3id]: '事業A', [c4id]: '' });
       win.__app.upsertRecords([{ fileName: 'a.json', data: data1 }]);
-      win.__app.enterReviewMode();
+      win.__app.enterSecondaryMode();
 
       const dirHandle = makeMockDirHandle(win, []);
       win.__app.setExportDirHandle(dirHandle);
-      const record = win.__app.REVIEW.records[0];
+      const record = win.__app.SECONDARY.records[0];
       const expectedName = win.__app.buildExportFileNameForRecord(record);
 
-      const row = win.document.querySelector('#review-table-root tbody tr');
+      const row = win.document.querySelector('#secondary-table-root tbody tr');
       const exportBtn = [...row.querySelectorAll('button')].find(b => b.textContent.includes('書き出す'));
       exportBtn.click();
       await waitFor(() => dirHandle.written[expectedName] !== undefined);

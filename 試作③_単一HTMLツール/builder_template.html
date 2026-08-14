@@ -2,14 +2,14 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>事務事業評価 入力フォーム ビルダー（試作）</title>
+<title>Excelフォーム変換ツール（試作）</title>
 <style>
   :root{
     --bg:#f7f5f0; --card:#ffffff; --ink:#2b2b28; --sub:#54514a;
     --line:#c9c4b4; --accent:#3d6b52; --accent-bg:#e9f2ec;
   }
   *{box-sizing:border-box;}
-  body{margin:0; background:var(--bg); color:var(--ink); font-family:"Yu Gothic","Hiragino Sans","Meiryo",sans-serif;}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:"Meiryo","Hiragino Sans",sans-serif;}
   .wrap{max-width:1100px; margin:0 auto; padding:24px 16px 80px;}
   h1{font-size:1.3rem; margin:0 0 6px;}
   p.lead{color:var(--sub); font-size:.88rem; margin:0 0 10px; line-height:1.6;}
@@ -17,6 +17,10 @@
   p.lead.lead-note{margin:0 0 20px;}
   ul.lead-list{color:var(--sub); font-size:.88rem; line-height:1.6; margin:0 0 10px; padding-left:1.3em;}
   p.step-label{font-size:.8rem; font-weight:bold; color:var(--accent); margin:0 0 6px;}
+  p.step-label.step-toggle{cursor:pointer; user-select:none;}
+  p.step-label.step-toggle:hover{text-decoration:underline;}
+  .step-content{margin-bottom:8px;}
+  p.step-memo{font-size:.76rem; color:var(--sub); margin:-4px 0 8px;}
   #drop-zone{
     display:block; border:2px dashed var(--line); border-radius:10px; padding:28px; text-align:center;
     background:var(--card); cursor:pointer; margin-bottom:14px;
@@ -65,7 +69,7 @@
   td.cell-input{background:#fff;}
   td.cell-input input, td.cell-input textarea, td.cell-input select{
     width:100%; height:100%; border:none; padding:3px 20px 3px 6px; font-size:.8rem; font-family:inherit;
-    background:transparent; resize:none;
+    line-height:1.2; background:transparent; resize:none;
   }
   td.cell-input input.input-number, td.cell-input input.input-currency{text-align:right;}
   td.cell-input input:focus, td.cell-input textarea:focus, td.cell-input select:focus{
@@ -187,19 +191,17 @@
   table.preview-table{border-collapse:collapse; width:100%; font-size:.72rem;}
   table.preview-table th, table.preview-table td{border:1px solid var(--line); padding:3px 6px; text-align:left; white-space:nowrap;}
   table.preview-table th{background:var(--bg); position:sticky; top:0;}
-  .export-preview-raw{margin-top:8px;}
-  .export-preview-raw summary{font-size:.74rem; color:var(--sub);}
-  .export-preview-raw pre{max-height:200px; overflow:auto; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px; font-size:.7rem; white-space:pre-wrap; word-break:break-all; margin-top:8px;}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>事務事業評価 入力フォーム ビルダー（試作・ツール1）</h1>
-  <p class="lead">事務事業評価シート等のExcelテンプレート（.xlsx）を読み込み、入力フォーム（.html）に変換します。</p>
+  <h1>Excelフォーム変換ツール（試作・ツール1）</h1>
+  <p class="lead">業務で使っているExcel様式（.xlsx）を読み込み、入力フォーム（.html）と、複数件のデータをまとめる集約ツール（.html）を生成します。</p>
   <p class="lead lead-features-title">本ツールの特徴</p>
   <ul class="lead-list">
     <li>通信は一切行わず、ブラウザの中だけで完結します</li>
-    <li>入力フォーム（.html）は、入力情報をJSON形式で出力し、手軽にデータベース化できます</li>
+    <li>入力フォーム（.html）は、入力内容をJSON形式で出力します</li>
+    <li>集約ツール（.html）に複数件のJSONを読み込ませると、まとめて集計・公開ページ化できます</li>
   </ul>
   <p class="lead lead-note">※ このページ自体では値の入力はできません（入力は入力フォーム（.html）側で行います）</p>
 
@@ -210,6 +212,7 @@
   <div id="status"></div>
 
   <p class="step-label" data-step-label="0"></p>
+  <p class="step-memo">💡 Excelの見た目をそのままHTMLフォームに変換します。この時点ではまだデータベース化はされていません。</p>
   <label id="drop-zone" for="file-input">
     <p>ここに.xlsxファイル、または入力フォーム（.html）を<br>ドラッグ＆ドロップ、または<span class="drop-link">ファイルを選択</span></p>
     <p class="drop-sub">入力フォーム（.html）の場合は、続きから手直しできます（前年度のフォームを翌年度用に作り直す場合など）</p>
@@ -217,7 +220,8 @@
   </label>
 
   <p class="step-label" data-step-label="1"></p>
-  <p class="hint" style="margin:-2px 0 8px;">読み込み時に自動で設定されていますが、セルごとに意図と違う箇所がないかここで確認・調整してください。</p>
+  <p class="hint" style="margin:-2px 0 8px;">下の入力フォーム（作成中）の各セルを見出し・自動計算または入力欄に設定します。読み込み時に自動で設定されていますが、セルごとに意図と違う箇所がないかここで確認・調整してください。各セルの設定は⚙アイコンから行えます。複数セルをドラッグまたはCtrl+クリックで選択すれば、画面下部の「まとめて設定」でまとめて行うこともできます。</p>
+  <p class="step-memo">💡 ここまではExcelの見た目をHTMLフォームの形に変換しているだけで、それ以上の意味は加わっていません。</p>
   <div data-step-detail="1"></div>
   <div id="grid-root"></div>
   <p class="hint">

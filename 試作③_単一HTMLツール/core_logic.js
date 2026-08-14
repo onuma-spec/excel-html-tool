@@ -513,6 +513,10 @@ function buildRowEntry(grid, u0, u1, maxCol, fromCol, getValue, collector, conte
     if (rest.length === 0) return { label: null, value: null, hasRealData: false };
     if (rest.length === 1) {
       const valueCell = rest[0];
+      if (valueCell.blocked) {
+        // 見出し（空白）：入力不可の余白セルなので、キー自体をJSONに出さない。
+        return { label: null, value: null, hasRealData: false };
+      }
       if (valueCell.hasText && !valueCell.dbKey && !valueCell.renderType) {
         // rest[0]自体がラベル（＝先頭セルに続けてもう1つラベルが並ぶだけの見出し行）である
         // 可能性と、既に記入済みの本物のデータである可能性を、テキストの有無だけでは
@@ -539,6 +543,7 @@ function buildRowEntry(grid, u0, u1, maxCol, fromCol, getValue, collector, conte
       // 新しい見出しに出会うまでcolNにフォールバックする（見出しが使い回されて複数の
       // 値セルが同じキーになり、片方が上書きで消える事故を防ぐ）。
       if (c.hasText) { precedingLabel = String(c.value).replace(/\s+/g, ''); return; }
+      if (c.blocked) { precedingLabel = null; return; }
       hasRealData = true;
       const key = defaultKeyFor(c, precedingLabel);
       dict[key] = getValue(c);
@@ -546,7 +551,7 @@ function buildRowEntry(grid, u0, u1, maxCol, fromCol, getValue, collector, conte
       // findMappingTargets側で「見出し由来だから目立たせない／colNだから目立たせる」の
       // 判定に使う（builder_app.jsのbuildMappingBlock参照）。
       const autoName = precedingLabel || ('col' + c.col);
-      if (collector && !c.blocked) collector.push({ cell: c, rowLabel, groupLabel: context || null, autoName });
+      collector && collector.push({ cell: c, rowLabel, groupLabel: context || null, autoName });
       precedingLabel = null;
     });
     return { label: rowLabel, value: dict, hasRealData };
@@ -554,15 +559,18 @@ function buildRowEntry(grid, u0, u1, maxCol, fromCol, getValue, collector, conte
   // 先頭セルが空欄（＝ラベルなしの行。繰り返し項目行など）→ 行全体を1つの無名レコードとして返す
   const dict = {};
   let precedingLabel = null;
+  let hasRealData = false;
   cells.forEach(c => {
     if (c.hasText) { precedingLabel = String(c.value).replace(/\s+/g, ''); return; }
+    if (c.blocked) { precedingLabel = null; return; }
+    hasRealData = true;
     const key = defaultKeyFor(c, precedingLabel);
     dict[key] = getValue(c);
     const autoName = precedingLabel || ('col' + c.col);
-    if (collector && !c.blocked) collector.push({ cell: c, rowLabel: null, groupLabel: context || null, autoName });
+    collector && collector.push({ cell: c, rowLabel: null, groupLabel: context || null, autoName });
     precedingLabel = null;
   });
-  return { label: null, value: dict, hasRealData: true };
+  return { label: null, value: dict, hasRealData };
 }
 
 // ---------------------------------------------------------------------------

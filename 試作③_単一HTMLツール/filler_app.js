@@ -7,13 +7,13 @@ let STATE = null;
 // 書き出し先フォルダ（Chromium限定・File System Access API）。指定されていれば
 // 通常のダウンロードダイアログを介さず直接このフォルダへ書き込む。未指定・非対応
 // ブラウザでは従来通り<a download>でブラウザの既定のダウンロード先へ保存する
-// （REVIEW.dirHandleと同じ発想だが、読込用と書き出し用でハンドルは分けている）。
+// （SECONDARY.dirHandleと同じ発想だが、読込用と書き出し用でハンドルは分けている）。
 let EXPORT_DIR_HANDLE = null;
 
 function $(sel) { return document.querySelector(sel); }
 
 // #statusへのメッセージ表示を一本化する。単にtextContentを書き換えるだけだと、
-// レビュー画面のようにボタンから離れた位置にある#statusの変化にユーザーが気づけない
+// 2次入力画面のようにボタンから離れた位置にある#statusの変化にユーザーが気づけない
 // （実機確認フィードバックで発覚）。①class付け替えで背景色フラッシュのアニメーションを
 // 再生させ、②scrollIntoView()で#status自体を画面内に入れることで、ボタンがページの
 // どこにあっても書き出し結果等に気づけるようにする。
@@ -74,12 +74,18 @@ function downloadBlob(blob, filename) {
 // ダウンロード）と区別するのは、実機テストで「共有フォルダを指定したつもりが権限エラーで
 // 気づかずローカルのダウンロードフォルダに保存されていた」という事故が起こりうると
 // 判明したため（ステータス文言で明示的に警告する）。
-async function saveToExportDir(blob, filename) {
+// opts.skipOverwriteConfirmがtrueの場合は既存有無を確認せず常に上書きする
+// （一括書き出しで、事前にまとめて1回だけ確認を取った後の各ファイルに使う。
+// bulkExportFiltered参照）。
+async function saveToExportDir(blob, filename, opts) {
+  opts = opts || {};
   try {
-    let exists = false;
-    try { await EXPORT_DIR_HANDLE.getFileHandle(filename); exists = true; } catch (e) { /* ファイルが無い＝新規保存 */ }
-    if (exists && !window.confirm(`「${filename}」は指定フォルダに既に存在します。上書きしますか？`)) {
-      return 'cancelled';
+    if (!opts.skipOverwriteConfirm) {
+      let exists = false;
+      try { await EXPORT_DIR_HANDLE.getFileHandle(filename); exists = true; } catch (e) { /* ファイルが無い＝新規保存 */ }
+      if (exists && !window.confirm(`「${filename}」は指定フォルダに既に存在します。上書きしますか？`)) {
+        return 'cancelled';
+      }
     }
     const fileHandle = await EXPORT_DIR_HANDLE.getFileHandle(filename, { create: true });
     const writable = await fileHandle.createWritable();
@@ -97,13 +103,23 @@ async function saveToExportDir(blob, filename) {
 // が渡る。あえて2経路に分けているのは、常にasync/awaitへ統一すると、フォルダ未指定の
 // 場合でも最低1マイクロタスク分の遅延が生まれ、書き出し直後に#statusを同期的に
 // 確認している既存の挙動・テストが崩れるため（フォルダ未指定時は今まで通り同期のまま）。
-function saveBlob(blob, filename, onDone) {
+function saveBlob(blob, filename, onDone, opts) {
   if (EXPORT_DIR_HANDLE) {
-    saveToExportDir(blob, filename).then(onDone);
+    saveToExportDir(blob, filename, opts).then(onDone);
     return;
   }
   downloadBlob(blob, filename);
   onDone('download');
+}
+
+// filenamesのうち、指定フォルダに既に存在するものの件数を数える（一括書き出しの
+// 事前確認用）。EXPORT_DIR_HANDLEが無い場合は呼び出し側で使わない前提。
+async function countExistingInExportDir(filenames) {
+  let count = 0;
+  for (const name of filenames) {
+    try { await EXPORT_DIR_HANDLE.getFileHandle(name); count++; } catch (e) { /* 無ければ数えない */ }
+  }
+  return count;
 }
 
 // saveBlobの結果に応じたステータス文言を組み立てる。downloadMessageはフォルダ未指定時
@@ -116,9 +132,9 @@ function statusMessageForSave(result, filename, downloadMessage) {
 }
 
 // Chromium限定：書き出し先フォルダを1回指定する。以後、このフォームからのJSON書き出しは
-// （通常画面・レビュー画面のどちらからでも）このフォルダへ直接保存される。
+// （通常画面・2次入力画面のどちらからでも）このフォルダへ直接保存される。
 // window.showDirectoryPickerが無いブラウザ（Firefox/Safari）では、対応するボタン自体を
-// 表示しない（レビュー画面の読込用フォルダ指定と同じ扱い）。
+// 表示しない（2次入力画面の読込用フォルダ指定と同じ扱い）。
 async function pickExportDirectory() {
   if (!window.showDirectoryPicker) return;
   try {
@@ -130,8 +146,8 @@ async function pickExportDirectory() {
 }
 
 // 通常グリッド・詳細画面のどちらでも同じ「1次/2次以降」の色分けを使うための共通Set。
-function reviewFieldIdSet() {
-  return new Set(STRUCTURE.reviewFields || []);
+function secondaryFieldIdSet() {
+  return new Set(STRUCTURE.secondaryFields || []);
 }
 
 function buildStateFromStructure(structure) {
@@ -182,10 +198,10 @@ function labelForCellId(id) {
 }
 
 // ---------------------------------------------------------------------------
-// レビュー画面（複数事業のJSONを一括読込し、判定/コメント等のレビュー欄を
-// 一覧表で入力する）。所管部署欄・レビュー欄は同じ様式（同じSTRUCTURE）に
+// 2次入力画面（複数事業のJSONを一括読込し、判定/コメント等の2次入力欄を
+// 一覧表で入力する）。所管部署欄・2次入力欄は同じ様式（同じSTRUCTURE）に
 // 含まれている前提のため、フィラー1個の中に「通常の1件入力画面」と
-// 「複数件レビュー画面」の2モードを持たせ、ボタンで切り替える構成にしている。
+// 「複数件2次入力画面」の2モードを持たせ、ボタンで切り替える構成にしている。
 // ---------------------------------------------------------------------------
 
 function el(tag, attrs, children) {
@@ -208,15 +224,15 @@ function readFileAsText(file) {
   });
 }
 
-// records: [{ fileName, data(読み込んだ生JSON), displayValues({cellId:value}), reviewValues({cellId:value}) }]
+// records: [{ fileName, data(読み込んだ生JSON), displayValues({cellId:value}), secondaryValues({cellId:value}) }]
 // visibleCols: 一覧表に列として表示するdisplayCandidateFieldsの部分集合（初期値は全件表示）。
 // dirHandle: showDirectoryPicker()で選んだFileSystemDirectoryHandle（Chromium限定）。
 // colFilters: Map<cellId|STATUS_FILTER_ID, Set<選択中の値>>（Excel風のオートフィルタ。
-// 「状態」列（レビュー欄が全て埋まっているか）もSTATUS_FILTER_IDという仮想列として
+// 「状態」列（2次入力欄が全て埋まっているか）もSTATUS_FILTER_IDという仮想列として
 // 同じ仕組みに乗せている。未操作の列はエントリ無し＝絞り込みなし。
-const REVIEW = { records: [], visibleCols: new Set(), dirHandle: null, colFilters: new Map() };
+const SECONDARY = { records: [], visibleCols: new Set(), dirHandle: null, colFilters: new Map() };
 
-// 詳細画面（openReviewDetail）で現在編集中のレコード・グリッド状態。
+// 詳細画面（openSecondaryDetail）で現在編集中のレコード・グリッド状態。
 // 全セル誰でも編集可能という方針のため、詳細画面は所管部署の入力を閲覧するだけでなく
 // 一件ずつ入力する経路としても使う。保存時にDETAIL_STATEから値を読み出し、
 // DETAIL_RECORDへ書き戻す（破棄する場合は単に画面を閉じるだけでよい）。
@@ -224,17 +240,17 @@ let DETAIL_RECORD = null;
 let DETAIL_STATE = null;
 
 // STRUCTURE.cells（同じ様式）を土台に、渡されたdataを読み込んだ「使い捨てのグリッド」を
-// #review-scratch-rootに描画→指定したcellIdの現在値を読み取る→片付ける、という
+// #secondary-scratch-rootに描画→指定したcellIdの現在値を読み取る→片付ける、という
 // 一連の処理をまとめる。既存のrenderGrid/loadDataIntoGridをそのまま再利用することで、
 // JSONのネスト構造（セクション→グループ→項目）をたどる特別なロジックを新たに
 // 書かずに済む（このアプリ全体で「値の出し入れは常にDOM経由」という設計を踏襲）。
 function extractFieldValues(data, cellIds) {
   if (!cellIds || cellIds.length === 0) return {};
-  // 同じSTRUCTURE（同じcellId体系）を使うレビュー詳細画面と同時に存在すると
+  // 同じSTRUCTURE（同じcellId体系）を使う2次入力詳細画面と同時に存在すると
   // document.getElementByIdが衝突するため、念のため詳細画面側も空にしておく。
-  const detailRoot = $('#review-detail-root');
+  const detailRoot = $('#secondary-detail-root');
   if (detailRoot) detailRoot.innerHTML = '';
-  const scratch = $('#review-scratch-root');
+  const scratch = $('#secondary-scratch-root');
   const tempState = buildStateFromStructure(STRUCTURE);
   GridRender.renderGrid(scratch, tempState, { showGear: false });
   GridRender.loadDataIntoGrid(tempState, data || {});
@@ -247,47 +263,56 @@ function extractFieldValues(data, cellIds) {
   return out;
 }
 
-// record.reviewValues（一覧表で入力した現在値）を、所管部署の元データrecord.dataに
-// 上書きマージしたJSONを組み立てる（書き出し用）。extractFieldValuesと同じ使い捨て
-// グリッドの仕組みを使い、読み込み直後にレビュー欄だけDOM上で値を差し替えてから
-// collectData()で丸ごと読み出す（＝ネスト構造の組み立てを新たに書かない）。
-function mergedDataForExport(record) {
-  const detailRoot = $('#review-detail-root');
+// record.secondaryValues（一覧表・詳細画面で入力中の2次入力欄の現在値）を、所管部署の
+// 元データrecord.dataに上書きマージした状態を、#secondary-scratch-root上に描画して返す。
+// 書き出し（mergedDataForExport）・一括印刷（buildBulkPrintSection）の両方が、この
+// 同じマージ結果を読む（以前は印刷だけrecord.dataを直接読んでおり、一覧表で入力した
+// だけでまだ詳細画面で保存していない内容が印刷に反映されない不整合があった）。
+// 呼び出し側は読み取り終わったら#secondary-scratch-rootを空にすること。
+function buildMergedTempState(record) {
+  const detailRoot = $('#secondary-detail-root');
   if (detailRoot) detailRoot.innerHTML = '';
-  const scratch = $('#review-scratch-root');
+  const scratch = $('#secondary-scratch-root');
   const tempState = buildStateFromStructure(STRUCTURE);
   GridRender.renderGrid(scratch, tempState, { showGear: false });
   GridRender.loadDataIntoGrid(tempState, record.data || {});
-  (STRUCTURE.reviewFields || []).forEach((id) => {
+  (STRUCTURE.secondaryFields || []).forEach((id) => {
     const inputEl = document.getElementById(id);
-    if (inputEl) inputEl.value = record.reviewValues[id] || '';
+    if (inputEl) inputEl.value = record.secondaryValues[id] || '';
   });
+  return tempState;
+}
+
+// buildMergedTempStateの結果をJSONとして書き出す用（extractFieldValuesと同じ使い捨て
+// グリッドの仕組みを使い、collectData()で丸ごと読み出す＝ネスト構造の組み立てを新たに書かない）。
+function mergedDataForExport(record) {
+  const tempState = buildMergedTempState(record);
   const merged = GridRender.collectData(tempState);
-  scratch.innerHTML = '';
+  $('#secondary-scratch-root').innerHTML = '';
   return merged;
 }
 
-// 既に読み込み済みのファイル名（fileName）は上書きしない。理由：レビュアーが
-// 一覧表で入力中の内容（record.reviewValues）を、フォルダの「更新」や再選択のたびに
+// 既に読み込み済みのファイル名（fileName）は上書きしない。理由：2次入力者が
+// 一覧表で入力中の内容（record.secondaryValues）を、フォルダの「更新」や再選択のたびに
 // 消してしまわないようにするため。新しいファイルだけを追加する仕様。
 function upsertRecords(newRecords) {
-  const existingNames = new Set(REVIEW.records.map(r => r.fileName));
+  const existingNames = new Set(SECONDARY.records.map(r => r.fileName));
   let added = 0;
   newRecords.forEach((r) => {
     if (existingNames.has(r.fileName)) return;
     const displayValues = extractFieldValues(r.data, STRUCTURE.displayCandidateFields || []);
-    const reviewValues = extractFieldValues(r.data, STRUCTURE.reviewFields || []);
-    REVIEW.records.push({ fileName: r.fileName, data: r.data, displayValues, reviewValues });
+    const secondaryValues = extractFieldValues(r.data, STRUCTURE.secondaryFields || []);
+    SECONDARY.records.push({ fileName: r.fileName, data: r.data, displayValues, secondaryValues });
     existingNames.add(r.fileName);
     added++;
   });
   return added;
 }
 
-// このレコードのレビュー欄が全て入力済みかどうか（一覧表の「状態」列・進捗表示に使う）。
+// このレコードの2次入力欄が全て入力済みかどうか（一覧表の「状態」列・進捗表示に使う）。
 function isRecordComplete(record) {
-  const fields = STRUCTURE.reviewFields || [];
-  return fields.length > 0 && fields.every(id => String(record.reviewValues[id] || '').trim() !== '');
+  const fields = STRUCTURE.secondaryFields || [];
+  return fields.length > 0 && fields.every(id => String(record.secondaryValues[id] || '').trim() !== '');
 }
 
 function buildExportFileNameForRecord(record) {
@@ -304,7 +329,7 @@ function buildExportFileNameForRecord(record) {
 }
 
 function renderColToggle() {
-  const root = $('#review-col-toggle');
+  const root = $('#secondary-col-toggle');
   root.innerHTML = '';
   const candidates = STRUCTURE.displayCandidateFields || [];
   if (candidates.length === 0) return;
@@ -312,22 +337,22 @@ function renderColToggle() {
   candidates.forEach((id) => {
     const inputId = 'colvis_' + id;
     const checkbox = el('input', { type: 'checkbox', id: inputId });
-    if (REVIEW.visibleCols.has(id)) checkbox.setAttribute('checked', 'checked');
+    if (SECONDARY.visibleCols.has(id)) checkbox.setAttribute('checked', 'checked');
     checkbox.addEventListener('change', () => {
-      if (checkbox.checked) REVIEW.visibleCols.add(id);
-      else REVIEW.visibleCols.delete(id);
-      renderReviewTable();
+      if (checkbox.checked) SECONDARY.visibleCols.add(id);
+      else SECONDARY.visibleCols.delete(id);
+      renderSecondaryTable();
     });
     root.appendChild(el('label', { for: inputId }, [checkbox, el('span', { text: labelForCellId(id) })]));
   });
 }
 
 function currentVisibleColIds() {
-  return (STRUCTURE.displayCandidateFields || []).filter(id => REVIEW.visibleCols.has(id));
+  return (STRUCTURE.displayCandidateFields || []).filter(id => SECONDARY.visibleCols.has(id));
 }
 
 // 「状態」列はdisplayCandidateFields由来の実セルを持たない仮想列のため、専用のIDで
-// 列フィルタ（REVIEW.colFilters）に参加させる。絞り込み方法を「列見出しの▼」1種類に
+// 列フィルタ（SECONDARY.colFilters）に参加させる。絞り込み方法を「列見出しの▼」1種類に
 // 統一するため（以前は状態だけ別のセレクトボックスになっており方式が2種類あった）。
 const STATUS_FILTER_ID = '__status__';
 
@@ -341,18 +366,18 @@ function columnValue(record, id) {
 // 一覧と同じ考え方）。
 function uniqueColumnValues(id) {
   const set = new Set();
-  REVIEW.records.forEach(r => set.add(columnValue(r, id)));
+  SECONDARY.records.forEach(r => set.add(columnValue(r, id)));
   return Array.from(set).sort((a, b) => String(a).localeCompare(String(b), 'ja'));
 }
 
-// 列フィルタ（REVIEW.colFilters: Map<cellId|STATUS_FILTER_ID, Set<選択中の値>>）を
+// 列フィルタ（SECONDARY.colFilters: Map<cellId|STATUS_FILTER_ID, Set<選択中の値>>）を
 // 満たすレコードだけを返す。複数列にまたがる場合AND条件（Excelと同じ）。状態列は
 // 表示/非表示の切り替え対象ではないため常にチェックする。非表示の識別列のフィルタは
 // 無視する（列を隠したらその列による絞り込みも見えなくなるため、直感に反しないように）。
 function matchesColFilters(record) {
   const idsToCheck = currentVisibleColIds().concat([STATUS_FILTER_ID]);
   for (const id of idsToCheck) {
-    const allowed = REVIEW.colFilters.get(id);
+    const allowed = SECONDARY.colFilters.get(id);
     if (!allowed) continue; // このセッションでまだ操作されていない列＝絞り込みなし
     if (!allowed.has(columnValue(record, id))) return false;
   }
@@ -360,18 +385,18 @@ function matchesColFilters(record) {
 }
 
 function filteredRecords() {
-  return REVIEW.records.filter(r => matchesColFilters(r));
+  return SECONDARY.records.filter(r => matchesColFilters(r));
 }
 
 function hasActiveFilters() {
-  return REVIEW.colFilters.size > 0;
+  return SECONDARY.colFilters.size > 0;
 }
 
-function updateReviewSummary(filtered) {
-  const summaryRoot = $('#review-summary');
+function updateSecondarySummary(filtered) {
+  const summaryRoot = $('#secondary-summary');
   const doneCount = filtered.filter(isRecordComplete).length;
-  const base = `${filtered.length}件中 ${doneCount}件 レビュー完了`;
-  summaryRoot.textContent = hasActiveFilters() ? `${base}（絞り込み中・全${REVIEW.records.length}件）` : base;
+  const base = `${filtered.length}件中 ${doneCount}件 2次入力完了`;
+  summaryRoot.textContent = hasActiveFilters() ? `${base}（絞り込み中・全${SECONDARY.records.length}件）` : base;
 }
 
 // document.bodyに直接追加した列フィルタのドロップダウンpanel群。theadを再描画する
@@ -385,13 +410,13 @@ function removeFilterPanelNodes() {
 
 // 列見出しの▼（Excel風のオートフィルタ）。<details>を使うことで開閉状態の管理・
 // 外側クリックでの自動close処理を独自に書かずに済ませる（ネイティブ挙動に委ねる）。
-// チェック変更時はrenderReviewTable()（thead含む全体再描画）ではなくrenderReviewBody()
+// チェック変更時はrenderSecondaryTable()（thead含む全体再描画）ではなくrenderSecondaryBody()
 // （tbodyのみ再描画）だけを呼ぶ：thead全体を再描画すると<details>が毎回閉じてしまい、
 // 複数の値を続けてチェック/解除する操作が成立しなくなるため。
 //
 // ドロップダウンパネル（.col-filter-panel）は<details>の子にせず、document.bodyへ
 // 直接追加してposition:fixedで<summary>の位置に合わせて表示する。理由：
-// #review-table-rootはoverflow-x:autoを持ち、CSS仕様上overflow-yも暗黙にautoになる
+// #secondary-table-rootはoverflow-x:autoを持ち、CSS仕様上overflow-yも暗黙にautoになる
 // ため、<details>の子のままだとその小さな表示領域にパネルがクリップされてしまう
 // （絞り込み結果が0件でtbodyがほぼ無いときに顕著。実機確認で発見）。
 function buildColFilterDetails(id) {
@@ -404,13 +429,13 @@ function buildColFilterDetails(id) {
   values.forEach((v) => {
     const inputId = 'colfilter_' + id + '_' + values.indexOf(v);
     const checkbox = el('input', { type: 'checkbox', id: inputId });
-    const currentAllowed = REVIEW.colFilters.get(id);
+    const currentAllowed = SECONDARY.colFilters.get(id);
     if (!currentAllowed || currentAllowed.has(v)) checkbox.setAttribute('checked', 'checked');
     checkbox.addEventListener('change', () => {
-      const allowed = new Set(REVIEW.colFilters.get(id) || values);
+      const allowed = new Set(SECONDARY.colFilters.get(id) || values);
       if (checkbox.checked) allowed.add(v); else allowed.delete(v);
-      REVIEW.colFilters.set(id, allowed);
-      renderReviewBody();
+      SECONDARY.colFilters.set(id, allowed);
+      renderSecondaryBody();
     });
     panel.appendChild(el('label', {}, [checkbox, document.createTextNode(v === '' ? '（空欄）' : v)]));
   });
@@ -430,20 +455,20 @@ function buildColFilterDetails(id) {
   return details;
 }
 
-function renderReviewTable() {
-  const tableRoot = $('#review-table-root');
+function renderSecondaryTable() {
+  const tableRoot = $('#secondary-table-root');
   tableRoot.innerHTML = '';
   removeFilterPanelNodes();
 
-  if (REVIEW.records.length === 0) {
-    updateReviewSummary([]);
+  if (SECONDARY.records.length === 0) {
+    updateSecondarySummary([]);
     return;
   }
 
   const visibleColIds = currentVisibleColIds();
-  const reviewFieldIds = STRUCTURE.reviewFields || [];
+  const secondaryFieldIds = STRUCTURE.secondaryFields || [];
 
-  const table = el('table', { class: 'review-table' });
+  const table = el('table', { class: 'secondary-table' });
   const thead = el('thead');
   const headRow = el('tr');
   visibleColIds.forEach((id) => {
@@ -452,7 +477,7 @@ function renderReviewTable() {
     th.appendChild(buildColFilterDetails(id));
     headRow.appendChild(th);
   });
-  reviewFieldIds.forEach(id => headRow.appendChild(el('th', { text: labelForCellId(id) })));
+  secondaryFieldIds.forEach(id => headRow.appendChild(el('th', { text: labelForCellId(id) })));
   const statusTh = el('th');
   statusTh.appendChild(document.createTextNode('状態 '));
   statusTh.appendChild(buildColFilterDetails(STATUS_FILTER_ID));
@@ -461,48 +486,48 @@ function renderReviewTable() {
   thead.appendChild(headRow);
   table.appendChild(thead);
 
-  const tbody = el('tbody', { id: 'review-tbody' });
+  const tbody = el('tbody', { id: 'secondary-tbody' });
   table.appendChild(tbody);
   tableRoot.appendChild(table);
 
-  renderReviewBody();
+  renderSecondaryBody();
 }
 
 // tbodyだけを絞り込み結果で再描画する（theadは触らない。理由はbuildColFilterDetails参照）。
-function renderReviewBody() {
-  const tbody = document.getElementById('review-tbody');
+function renderSecondaryBody() {
+  const tbody = document.getElementById('secondary-tbody');
   if (!tbody) return;
   tbody.innerHTML = '';
 
   const visibleColIds = currentVisibleColIds();
-  const reviewFieldIds = STRUCTURE.reviewFields || [];
+  const secondaryFieldIds = STRUCTURE.secondaryFields || [];
   const filtered = filteredRecords();
 
   filtered.forEach((record) => {
     const tr = el('tr');
     visibleColIds.forEach(id => tr.appendChild(el('td', { text: record.displayValues[id] || '' })));
-    reviewFieldIds.forEach((id) => {
-      const textarea = el('textarea', { id: 'review_' + record.fileName + '_' + id });
-      textarea.value = record.reviewValues[id] || '';
+    secondaryFieldIds.forEach((id) => {
+      const textarea = el('textarea', { id: 'secondary_' + record.fileName + '_' + id });
+      textarea.value = record.secondaryValues[id] || '';
       textarea.addEventListener('input', () => {
-        record.reviewValues[id] = textarea.value;
-        const statusTd = tr.querySelector('.review-status-cell');
+        record.secondaryValues[id] = textarea.value;
+        const statusTd = tr.querySelector('.secondary-status-cell');
         if (statusTd) {
           const complete = isRecordComplete(record);
           statusTd.textContent = complete ? '✅完了' : '未完了';
-          statusTd.classList.toggle('review-status-done', complete);
+          statusTd.classList.toggle('secondary-status-done', complete);
         }
-        updateReviewSummary(filteredRecords());
+        updateSecondarySummary(filteredRecords());
       });
-      const td = el('td', { class: 'review-input-cell' }); td.appendChild(textarea);
+      const td = el('td', { class: 'secondary-input-cell' }); td.appendChild(textarea);
       tr.appendChild(td);
     });
-    const statusTd = el('td', { class: 'review-status-cell' + (isRecordComplete(record) ? ' review-status-done' : ''), text: isRecordComplete(record) ? '✅完了' : '未完了' });
+    const statusTd = el('td', { class: 'secondary-status-cell' + (isRecordComplete(record) ? ' secondary-status-done' : ''), text: isRecordComplete(record) ? '✅完了' : '未完了' });
     tr.appendChild(statusTd);
 
-    const btnTd = el('td', { class: 'review-btn-cell' });
+    const btnTd = el('td', { class: 'secondary-btn-cell' });
     const detailBtn = el('button', { class: 'secondary', type: 'button', text: '詳細' });
-    detailBtn.addEventListener('click', () => openReviewDetail(record));
+    detailBtn.addEventListener('click', () => openSecondaryDetail(record));
     btnTd.appendChild(detailBtn);
     const exportBtn = el('button', { type: 'button', text: '📋 書き出す' });
     exportBtn.addEventListener('click', () => {
@@ -510,7 +535,7 @@ function renderReviewBody() {
       const filename = buildExportFileNameForRecord(record);
       const blob = new Blob([JSON.stringify(merged, null, 2)], { type: 'application/json' });
       saveBlob(blob, filename, (result) => {
-        setStatus(statusMessageForSave(result, filename, `「${record.fileName}」のレビュー結果を書き出しました。`));
+        setStatus(statusMessageForSave(result, filename, `「${record.fileName}」の2次入力結果を書き出しました。`));
       });
     });
     btnTd.appendChild(exportBtn);
@@ -519,28 +544,25 @@ function renderReviewBody() {
     tbody.appendChild(tr);
   });
 
-  updateReviewSummary(filtered);
+  updateSecondarySummary(filtered);
 }
 
-function renderReviewList() {
+function renderSecondaryList() {
   renderColToggle();
-  renderReviewTable();
+  renderSecondaryTable();
 }
 
 // 1件分のレコードを、印刷用の読み取り専用スナップショット（<div class="bulk-print-record">）
-// として組み立てる。renderGrid/loadDataIntoGridで#review-scratch-rootに一旦実描画し
+// として組み立てる。buildMergedTempStateで#secondary-scratch-rootに一旦実描画し
 // （cellIdからdocument.getElementByIdで値を引けるようにするため）、その値を
 // GridRender.buildPrintTable()で読み取り専用の静的テーブル（ルーラーなし・
 // input/textarea/selectを使わずテキストのみ）に変換する。以前は編集用グリッドを
 // そのままクローンしてid属性だけ取り除いていたが、textareaの既定サイズに引っぱられて
 // 行が間延びし、1事業が何ページにも分割される不具合があった（実機確認で発覚）。
 function buildBulkPrintSection(record) {
-  const scratch = $('#review-scratch-root');
-  const tempState = buildStateFromStructure(STRUCTURE);
-  GridRender.renderGrid(scratch, tempState, { showGear: false });
-  GridRender.loadDataIntoGrid(tempState, record.data || {});
+  const tempState = buildMergedTempState(record);
   const table = GridRender.buildPrintTable(tempState);
-  scratch.innerHTML = '';
+  $('#secondary-scratch-root').innerHTML = '';
 
   const section = el('div', { class: 'bulk-print-record' });
   section.appendChild(el('h2', { text: record.fileName }));
@@ -560,7 +582,7 @@ function bulkPrintFiltered() {
   window.print();
 }
 
-// 1件だけを印刷する（1次入力画面・レビュー詳細画面の「🖨 この画面を印刷する」）。
+// 1件だけを印刷する（1次入力画面・2次入力詳細画面の「🖨 この画面を印刷する」）。
 // bulkPrintFilteredと同じ#bulk-print-root／bulk-printingクラスの仕組みを流用する
 // （後片付けもafterprintのcleanupBulkPrintをそのまま使い回せる）。stateは既に
 // どこかのrootへrenderGrid済みのもの（STATE・DETAIL_STATE）を渡す：buildPrintTableは
@@ -590,11 +612,28 @@ function cleanupBulkPrint() {
 // buildExportFileNameForRecord）をsaveBlobで書き出す。saveToExportDir側が非同期な
 // フォルダ書き込みを行うため、Promise.allのような並列実行ではなく1件ずつ完了を
 // 待って進める（同名ファイルの上書き確認ダイアログ等が同時多発しないようにするため）。
-function bulkExportFiltered() {
+// フォルダ指定時（EXPORT_DIR_HANDLE）は、対象の中に指定フォルダへ既に存在する同名
+// ファイルが1件でもあれば、ループ開始前に「◯件が既に存在します。上書きしますか？」と
+// 1回だけまとめて確認する（従来は1件ごとに毎回confirmが出て操作が煩雑だった：実機確認
+// フィードバック）。キャンセルした場合は1件も書き出さない。OK後は各ファイルの個別確認を
+// スキップ（skipOverwriteConfirm）し、確認した通り全件を上書きする。
+async function bulkExportFiltered() {
   const filtered = filteredRecords();
   if (filtered.length === 0) {
     setStatus('絞り込み結果が0件のため、書き出す対象がありません。');
     return;
+  }
+  const filenames = filtered.map(buildExportFileNameForRecord);
+  let skipOverwriteConfirm = false;
+  if (EXPORT_DIR_HANDLE) {
+    const existingCount = await countExistingInExportDir(filenames);
+    if (existingCount > 0) {
+      if (!window.confirm(`${existingCount}件が指定フォルダに既に存在します。上書きして書き出しますか？`)) {
+        setStatus('書き出しを中止しました（指定フォルダに同名ファイルがあります）。');
+        return;
+      }
+      skipOverwriteConfirm = true;
+    }
   }
   const exportNext = (i) => {
     if (i >= filtered.length) {
@@ -603,17 +642,17 @@ function bulkExportFiltered() {
     }
     const record = filtered[i];
     const merged = mergedDataForExport(record);
-    const filename = buildExportFileNameForRecord(record);
+    const filename = filenames[i];
     const blob = new Blob([JSON.stringify(merged, null, 2)], { type: 'application/json' });
-    saveBlob(blob, filename, () => exportNext(i + 1));
+    saveBlob(blob, filename, () => exportNext(i + 1), { skipOverwriteConfirm });
   };
   exportNext(0);
 }
 
-// 画面切替：'select'（STEP1・入力画面の選択）／'normal'（1次入力）／'list'（レビュー一覧表）／
-// 'detail'（レビュー詳細）。#grid-rootと#review-detail-rootは同じSTRUCTURE（同じcellId体系）を
+// 画面切替：'select'（STEP1・入力画面の選択）／'normal'（1次入力）／'list'（2次入力一覧表）／
+// 'detail'（2次入力詳細）。#grid-rootと#secondary-detail-rootは同じSTRUCTURE（同じcellId体系）を
 // 使うため、同時に中身を持たせるとdocument.getElementByIdが衝突する。'list'へ入る際に
-// #grid-rootを空にする運用（enterReviewMode参照）は維持し、詳細画面がいつ開かれても
+// #grid-rootを空にする運用（enterSecondaryMode参照）は維持し、詳細画面がいつ開かれても
 // 衝突しないようにする。
 let CURRENT_SCREEN = 'select'; // 自動下書き保存（scheduleDraftSave）が「今1次入力画面か」を判定するために使う
 
@@ -621,8 +660,8 @@ function showScreen(name) {
   CURRENT_SCREEN = name;
   $('#mode-select-root').style.display = name === 'select' ? '' : 'none';
   $('#normal-mode-root').style.display = name === 'normal' ? '' : 'none';
-  $('#review-root').style.display = name === 'list' ? '' : 'none';
-  $('#review-detail-root-wrap').style.display = name === 'detail' ? '' : 'none';
+  $('#secondary-root').style.display = name === 'list' ? '' : 'none';
+  $('#secondary-detail-root-wrap').style.display = name === 'detail' ? '' : 'none';
 }
 
 // ---------------------------------------------------------------------------
@@ -669,14 +708,14 @@ function offerDraftRestoreIfAny() {
 
 // 1次入力のグリッドは初回だけ描画し、以後はSTEP1（入力画面の選択）との行き来では
 // 表示/非表示を切り替えるだけにする（入力途中の値を保持するため、毎回作り直さない）。
-// レビュー画面へ移った場合は#grid-rootが空にされる（enterReviewMode参照。IDの衝突回避が
+// 2次入力画面へ移った場合は#grid-rootが空にされる（enterSecondaryMode参照。IDの衝突回避が
 // 目的で、1次入力の途中経過はそこで失われる）ため、normalModeRenderedをfalseに戻し、
 // 次にenterNormalModeが呼ばれたときに再描画されるようにする。
 let normalModeRendered = false;
 
 function enterNormalMode() {
   if (!normalModeRendered) {
-    GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
+    GridRender.renderGrid($('#grid-root'), STATE, { showGear: false, secondaryFieldIds: secondaryFieldIdSet() });
     normalModeRendered = true;
     offerDraftRestoreIfAny();
   }
@@ -684,7 +723,7 @@ function enterNormalMode() {
 }
 
 // #grid-root（1次入力画面）に、空欄でない入力欄が1つでもあるかどうか。
-// enterReviewMode()が無条件でグリッドを空にする前の確認に使う。normalModeRenderedが
+// enterSecondaryMode()が無条件でグリッドを空にする前の確認に使う。normalModeRenderedが
 // falseの場合（一度も1次入力に入っていない、またはSTEP1のみを経由している）は
 // grid-root自体に入力欄が無いため、自然にfalseを返す。
 function hasUnsavedNormalInput() {
@@ -703,50 +742,57 @@ function clearNormalModeGrid() {
   clearDraft();
 }
 
-// #grid-root（同じcellId体系を使うレビュー画面）へ移る前に、1次入力欄が空でなければ
+// #grid-root（同じcellId体系を使う2次入力画面）へ移る前に、1次入力欄が空でなければ
 // 「消えてよいか」を確認する。STEP1が前面に出たことで、1次入力の途中にうっかり
 // 2次以降入力へ切り替え、内容を無警告で失うリスクが高まったための対応
 // （実機確認フィードバック）。キャンセルした場合は画面遷移そのものを取りやめる。
-function enterReviewMode() {
+function enterSecondaryMode() {
   if (hasUnsavedNormalInput() && !window.confirm('1次入力の内容が消えます。2次以降入力へ移動してよろしいですか？')) {
     return;
   }
   $('#grid-root').innerHTML = '';
   normalModeRendered = false;
   showScreen('list');
-  renderReviewList();
+  renderSecondaryList();
 }
 
-// STEP1（入力画面の選択）に戻る。レビュー詳細・列フィルタのドロップダウンが
+// STEP1（入力画面の選択）に戻る。2次入力詳細・列フィルタのドロップダウンが
 // 残っていれば片付ける。#grid-rootはここでは触らない（1次入力の途中経過を、
 // STEP1を経由して1次入力に戻ってきたときのために保持するため）。
 function backToModeSelect() {
-  $('#review-detail-root').innerHTML = '';
+  $('#secondary-detail-root').innerHTML = '';
   removeFilterPanelNodes();
   showScreen('select');
 }
 
 // 詳細画面は「所管部署の入力を閲覧するだけ」ではなく、通常グリッド画面と同じく
 // 全セル編集可能にする（全セル誰でも入力できる、という方針）。1件ずつ入力したい
-// レビュアー向けの経路として、一覧表のインライン編集と並ぶ選択肢になる。
-function openReviewDetail(record) {
+// 2次入力者向けの経路として、一覧表のインライン編集と並ぶ選択肢になる。
+function openSecondaryDetail(record) {
   DETAIL_RECORD = record;
   DETAIL_STATE = buildStateFromStructure(STRUCTURE);
-  GridRender.renderGrid($('#review-detail-root'), DETAIL_STATE, { showGear: false, reviewFieldIds: reviewFieldIdSet() });
+  GridRender.renderGrid($('#secondary-detail-root'), DETAIL_STATE, { showGear: false, secondaryFieldIds: secondaryFieldIdSet() });
   GridRender.loadDataIntoGrid(DETAIL_STATE, record.data || {});
+  // 一覧表のインライン編集で入力済みだが、まだ詳細画面で保存していない2次入力欄の値も
+  // ここで上書きしておく。record.dataだけ読み込むと、一覧で直接入力した内容が詳細画面を
+  // 開いた瞬間に古い値に戻って見える（実際にはrecord.secondaryValuesに残っているが表示上消える）。
+  (STRUCTURE.secondaryFields || []).forEach((id) => {
+    const inputEl = document.getElementById(id);
+    if (inputEl) inputEl.value = record.secondaryValues[id] || '';
+  });
   showScreen('detail');
 }
 
 // 詳細画面での編集を破棄して一覧に戻る（保存しない）。
-function backToReviewListFromDetail() {
-  $('#review-detail-root').innerHTML = '';
+function backToSecondaryListFromDetail() {
+  $('#secondary-detail-root').innerHTML = '';
   DETAIL_RECORD = null;
   DETAIL_STATE = null;
   showScreen('list');
 }
 
-// 詳細画面での編集内容を、対象レコードのdata/displayValues/reviewValuesへ書き戻し、
-// 一覧を再描画してから一覧画面に戻る。書き戻すのはレビュー欄だけでなく全項目
+// 詳細画面での編集内容を、対象レコードのdata/displayValues/secondaryValuesへ書き戻し、
+// 一覧を再描画してから一覧画面に戻る。書き戻すのは2次入力欄だけでなく全項目
 // （所管部署欄も含む）で、詳細画面で行った変更はすべて反映される。
 function saveDetailAndBackToList() {
   if (!DETAIL_RECORD || !DETAIL_STATE) return;
@@ -754,30 +800,30 @@ function saveDetailAndBackToList() {
   const merged = GridRender.collectData(DETAIL_STATE);
   record.data = merged;
   record.displayValues = extractFieldValues(merged, STRUCTURE.displayCandidateFields || []);
-  record.reviewValues = extractFieldValues(merged, STRUCTURE.reviewFields || []);
-  backToReviewListFromDetail();
-  renderReviewList();
-  setStatus(`「${record.fileName}」の内容を保存しました。`);
+  record.secondaryValues = extractFieldValues(merged, STRUCTURE.secondaryFields || []);
+  backToSecondaryListFromDetail();
+  renderSecondaryList();
+  setStatus(`「${record.fileName}」の内容を保存しました（画面上のみ反映。ファイルに残すには「書き出す」を押してください）。`);
 }
 
 // Chromium限定：フォルダを1回指定→以後「更新」ボタンで都度読み直せるようにする。
 // window.showDirectoryPickerが無いブラウザ（Firefox/Safari）では、対応するボタン自体を
 // 表示しない（フォールバックは複数ファイル選択ダイアログの選び直しに委ねる）。
-async function pickReviewDirectory() {
+async function pickSecondaryDirectory() {
   if (!window.showDirectoryPicker) return;
   try {
-    REVIEW.dirHandle = await window.showDirectoryPicker();
+    SECONDARY.dirHandle = await window.showDirectoryPicker();
   } catch (e) {
     return; // ユーザーがキャンセルした場合等。エラー表示はしない。
   }
-  $('#review-btn-refresh').style.display = '';
-  await scanReviewDirectory();
+  $('#secondary-btn-refresh').style.display = '';
+  await scanSecondaryDirectory();
 }
 
-async function scanReviewDirectory() {
-  if (!REVIEW.dirHandle) return;
+async function scanSecondaryDirectory() {
+  if (!SECONDARY.dirHandle) return;
   const newRecords = [];
-  for await (const entry of REVIEW.dirHandle.values()) {
+  for await (const entry of SECONDARY.dirHandle.values()) {
     if (entry.kind !== 'file' || !entry.name.toLowerCase().endsWith('.json')) continue;
     const file = await entry.getFile();
     try {
@@ -786,11 +832,11 @@ async function scanReviewDirectory() {
     } catch (e) { /* 壊れたJSONはスキップ */ }
   }
   const added = upsertRecords(newRecords);
-  renderReviewList();
-  setStatus(`フォルダを読み直しました（新規${added}件、合計${REVIEW.records.length}件）。`);
+  renderSecondaryList();
+  setStatus(`フォルダを読み直しました（新規${added}件、合計${SECONDARY.records.length}件）。`);
 }
 
-async function handleReviewFileInput(fileList) {
+async function handleSecondaryFileInput(fileList) {
   const files = Array.from(fileList || []);
   const newRecords = [];
   for (const file of files) {
@@ -801,24 +847,24 @@ async function handleReviewFileInput(fileList) {
     } catch (e) { /* 壊れたJSONはスキップ */ }
   }
   const added = upsertRecords(newRecords);
-  renderReviewList();
-  setStatus(`${added}件読み込みました（合計${REVIEW.records.length}件）。`);
+  renderSecondaryList();
+  setStatus(`${added}件読み込みました（合計${SECONDARY.records.length}件）。`);
 }
 
 function init() {
   STATE = buildStateFromStructure(STRUCTURE);
-  REVIEW.visibleCols = new Set(STRUCTURE.displayCandidateFields || []);
+  SECONDARY.visibleCols = new Set(STRUCTURE.displayCandidateFields || []);
 
-  // レビュー欄が1つも指定されていない様式では、STEP1（入力画面の選択）自体を
+  // 2次入力欄が1つも指定されていない様式では、STEP1（入力画面の選択）自体を
   // 出さず、1次入力からそのまま始める（1段階しか無い様式にまで選択を強いない）。
   // 色分けの凡例も同じ条件で出し分ける（区別する意味が無いため）。
-  const hasReview = (STRUCTURE.reviewFields || []).length > 0;
-  if (hasReview) {
-    $('#btn-mode-review').style.display = '';
+  const hasSecondary = (STRUCTURE.secondaryFields || []).length > 0;
+  if (hasSecondary) {
+    $('#btn-mode-secondary').style.display = '';
     $('#field-legend').style.display = '';
   }
   if (window.showDirectoryPicker) {
-    $('#review-btn-pick-dir').style.display = '';
+    $('#secondary-btn-pick-dir').style.display = '';
     // #export-dir-barはCSS側で`display:none`をスタイルシート宣言（インライン属性ではない）
     // として持っているため、.style.display=''（インライン指定の除去）では
     // スタイルシートのdisplay:noneにフォールバックしてしまい表示されない。
@@ -834,22 +880,22 @@ function init() {
   }
 
   $('#btn-mode-normal').addEventListener('click', enterNormalMode);
-  $('#btn-mode-review').addEventListener('click', enterReviewMode);
+  $('#btn-mode-secondary').addEventListener('click', enterSecondaryMode);
   $('#btn-back-to-select').addEventListener('click', backToModeSelect);
-  $('#btn-close-review').addEventListener('click', backToModeSelect);
-  $('#btn-back-to-review-list').addEventListener('click', backToReviewListFromDetail);
+  $('#btn-close-secondary').addEventListener('click', backToModeSelect);
+  $('#btn-back-to-secondary-list').addEventListener('click', backToSecondaryListFromDetail);
   $('#btn-save-detail').addEventListener('click', saveDetailAndBackToList);
   $('#btn-print-grid').addEventListener('click', () => printSingleSnapshot(STATE, STRUCTURE.formTitle));
   $('#btn-print-detail').addEventListener('click', () => printSingleSnapshot(DETAIL_STATE, STRUCTURE.formTitle));
   $('#btn-bulk-print').addEventListener('click', bulkPrintFiltered);
   $('#btn-bulk-export').addEventListener('click', bulkExportFiltered);
   window.addEventListener('afterprint', cleanupBulkPrint);
-  $('#review-file-load').addEventListener('change', (ev) => {
-    handleReviewFileInput(ev.target.files);
+  $('#secondary-file-load').addEventListener('change', (ev) => {
+    handleSecondaryFileInput(ev.target.files);
     ev.target.value = '';
   });
-  $('#review-btn-pick-dir').addEventListener('click', pickReviewDirectory);
-  $('#review-btn-refresh').addEventListener('click', scanReviewDirectory);
+  $('#secondary-btn-pick-dir').addEventListener('click', pickSecondaryDirectory);
+  $('#secondary-btn-refresh').addEventListener('click', scanSecondaryDirectory);
   $('#btn-pick-export-dir').addEventListener('click', pickExportDirectory);
   $('#btn-clear-normal').addEventListener('click', () => {
     if (hasUnsavedNormalInput() && !window.confirm('入力中の内容がすべて消えます。よろしいですか？')) {
@@ -912,9 +958,9 @@ function init() {
     }
   });
 
-  // レビュー欄が定義されている様式ではSTEP1（入力画面の選択）から始める。
+  // 2次入力欄が定義されている様式ではSTEP1（入力画面の選択）から始める。
   // 定義が無い様式（1段階しか無い様式）では選択を挟まず、直接1次入力から始める。
-  if (hasReview) {
+  if (hasSecondary) {
     showScreen('select');
   } else {
     enterNormalMode();
@@ -929,12 +975,12 @@ if (typeof window !== 'undefined') {
     loadDataIntoGrid: (data) => GridRender.loadDataIntoGrid(STATE, data),
     buildExportFileName, sanitizeForFileName,
     findMissingRequiredFields, labelForCellId,
-    get REVIEW() { return REVIEW; },
+    get SECONDARY() { return SECONDARY; },
     upsertRecords, extractFieldValues, mergedDataForExport, isRecordComplete,
-    filteredRecords, renderReviewBody, bulkPrintFiltered, cleanupBulkPrint, bulkExportFiltered,
-    buildExportFileNameForRecord, renderReviewList, enterReviewMode, enterNormalMode, backToModeSelect, hasUnsavedNormalInput,
-    openReviewDetail, backToReviewListFromDetail, saveDetailAndBackToList, handleReviewFileInput,
-    pickReviewDirectory, scanReviewDirectory,
+    filteredRecords, renderSecondaryBody, bulkPrintFiltered, cleanupBulkPrint, bulkExportFiltered,
+    buildExportFileNameForRecord, renderSecondaryList, enterSecondaryMode, enterNormalMode, backToModeSelect, hasUnsavedNormalInput,
+    openSecondaryDetail, backToSecondaryListFromDetail, saveDetailAndBackToList, handleSecondaryFileInput,
+    pickSecondaryDirectory, scanSecondaryDirectory,
     saveBlob, pickExportDirectory,
     get EXPORT_DIR_HANDLE() { return EXPORT_DIR_HANDLE; },
     setExportDirHandle: (h) => { EXPORT_DIR_HANDLE = h; }, // テスト用（実ブラウザではpickExportDirectory経由）

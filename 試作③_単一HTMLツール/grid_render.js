@@ -55,7 +55,11 @@ function buildInputControl(info, rowspan, colspan) {
     });
     return input;
   }
-  return el('textarea', { id });
+  // rows未指定だとブラウザ既定の2行分の高さが最低保証され、空欄の入力欄が
+  // 見出し（空白）等の他セルより不自然に間延びして見える。rows=1で1行分を
+  // 既定にしても、height:100%は維持したままなので、Excel由来の行高やセル結合、
+  // 同じ行にある見出しの折り返しで行が高くなる場合はそのまま追従して伸びる。
+  return el('textarea', { id, rows: '1' });
 }
 
 /**
@@ -64,10 +68,10 @@ function buildInputControl(info, rowspan, colspan) {
  * （手直し機能を持つビルダー専用。生成済み入力フォーム側はfalseにする）。
  * opts.selected（Set<'row,col'>）を渡すと該当セルに .cell-selected を付ける。
  * opts.readonly=true のとき、全ての入力欄（input/textarea/select）にdisabledを付ける
- * （レビュー画面で所管部署の入力内容を閲覧専用で表示する用途）。
- * opts.reviewFieldIds（Set<cellId>）を渡すと、入力セルごとに「1次入力欄」
- * （cell-field-primary）／「2次以降入力欄」（cell-field-review）のクラスを付ける
- * （STRUCTURE.reviewFieldsが1件も無い様式では区別する意味が無いため、Setが空なら何も付けない）。
+ * （2次入力画面で所管部署の入力内容を閲覧専用で表示する用途）。
+ * opts.secondaryFieldIds（Set<cellId>）を渡すと、入力セルごとに「1次入力欄」
+ * （cell-field-primary）／「2次以降入力欄」（cell-field-secondary）のクラスを付ける
+ * （STRUCTURE.secondaryFieldsが1件も無い様式では区別する意味が無いため、Setが空なら何も付けない）。
  * 戻り値：このグリッドに含まれる数式セルのinfo配列（再計算対象として呼び出し元が保持する）。
  */
 function renderGrid(rootEl, state, opts) {
@@ -149,12 +153,12 @@ function renderGrid(rootEl, state, opts) {
       } else {
         td.className = 'cell-input';
         const inputEl = buildInputControl(info, rowspan, colspan);
-        // opts.readonly：レビュー画面の詳細確認（所管部署の入力を閲覧するだけ）用。
+        // opts.readonly：2次入力画面の詳細確認（所管部署の入力を閲覧するだけ）用。
         // renderType別に別々の分岐を持たず、描画後に一律disabledを付けるだけにする
         // （buildInputControl側に手を入れると通常モードとの分岐が増えて事故りやすいため）。
         if (opts.readonly) inputEl.setAttribute('disabled', 'disabled');
-        if (opts.reviewFieldIds && opts.reviewFieldIds.size > 0) {
-          td.classList.add(opts.reviewFieldIds.has(CoreLogic.cellId(info)) ? 'cell-field-review' : 'cell-field-primary');
+        if (opts.secondaryFieldIds && opts.secondaryFieldIds.size > 0) {
+          td.classList.add(opts.secondaryFieldIds.has(CoreLogic.cellId(info)) ? 'cell-field-secondary' : 'cell-field-primary');
         }
         td.appendChild(inputEl);
       }

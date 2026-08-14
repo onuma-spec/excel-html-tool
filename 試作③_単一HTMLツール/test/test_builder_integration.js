@@ -290,7 +290,7 @@ function setModalInput(win, id, value) {
       assertTrue(!!block, '単独の入力欄ブロックが表示されているべき');
       const items = block.querySelectorAll('.mapping-item');
       assertEqual(items.length, singles.length);
-      assertFalse(!!findMappingBlock(win, 'グループ化された列'), 'グループが無いのでグループブロックは表示されないはず');
+      assertFalse(!!findMappingBlock(win, 'グループ化された入力欄'), 'グループが無いのでグループブロックは表示されないはず');
 
       // 先頭項目（3行目「申込日」のC3セル）
       const firstItem = items[0];
@@ -413,7 +413,7 @@ function setModalInput(win, id, value) {
       assertEqual(singles.length, 0);
       assertEqual(groups.length, 2, '2列（col1・col2）ぶんの2件にまとまるはず');
 
-      const block = findMappingBlock(win, 'グループ化された列');
+      const block = findMappingBlock(win, 'グループ化された入力欄');
       assertTrue(!!block, 'グループブロックが表示されているべき');
       const items = block.querySelectorAll('.mapping-item');
       assertEqual(items.length, 2);
@@ -463,7 +463,7 @@ function setModalInput(win, id, value) {
       win.__app.OVERRIDES[win.CoreLogic.cellId(row1Col1)] = { kind: 'textarea', dbKey: 'kekka' };
       win.__app.rebuildAndRender();
 
-      const block = findMappingBlock(win, 'グループ化された列');
+      const block = findMappingBlock(win, 'グループ化された入力欄');
       const { groups } = win.CoreLogic.findMappingTargets(win.__app.CURRENT.grid, win.__app.CURRENT.sections, win.__app.CURRENT.maxCol, win.__app.CURRENT.manualGroups);
       const col1Cells = groups.find(g => g.col === 1).cells;
       const inputId = 'mapgroup_' + win.CoreLogic.cellId(col1Cells[0]);
@@ -582,6 +582,21 @@ function setModalInput(win, id, value) {
       assertTrue(status.classList.contains('status-flash'), '書き出し後もstatus-flashクラスが付いているはず');
     });
 
+    await testAsync('doExportAsBoth()は入力フォーム・集約ツールの2ファイルをまとめて書き出し、統合されたステータスになる（STEP5書き出すボタンの実体）', async () => {
+      const dom = newBuilderPage();
+      const win = dom.window;
+      await loadFixture(dom, FIXTURE);
+      const status = win.document.getElementById('status');
+      const downloads = [];
+      win.URL.createObjectURL = () => 'blob:mock';
+      win.HTMLAnchorElement.prototype.click = function () { downloads.push(this.download); };
+      win.__app.doExportAsBoth();
+      assertEqual(downloads.length, 2, '入力フォーム・集約ツールの2ファイルがダウンロードされるはず');
+      assertTrue(downloads[0].endsWith('_入力フォーム.html'), `1つ目は入力フォームのはず: "${downloads[0]}"`);
+      assertTrue(downloads[1].endsWith('_集約ツール.html'), `2つ目は集約ツールのはず: "${downloads[1]}"`);
+      assertEqual(status.textContent, '入力フォーム・集約ツールの2ファイルを書き出しました。', '個別の書き出しメッセージではなく統合された文言になるはず');
+    });
+
     await testAsync('STEP4のタイトル欄で書き換えると、書き出されるフォームのh1・titleとダウンロードファイル名に反映される', async () => {
       // 実際のfiller_template.htmlの中身（__FORM_TITLE__プレースホルダー）を検証したいので、
       // newBuilderPage()ではなくassemble.py相当の組み立てを行うヘルパーを使う。
@@ -651,7 +666,7 @@ function setModalInput(win, id, value) {
       assertEqual(win.__app.serializeStructure().fileNameFields, [targetId], '再書き出し時も同じ項目がfileNameFieldsに含まれるべき');
     });
 
-    await testAsync('必須項目・レビュー欄をチェックすると、選んだ順ではなくシート上の並び順でstructureに入る', async () => {
+    await testAsync('必須項目・2次入力欄をチェックすると、選んだ順ではなくシート上の並び順でstructureに入る', async () => {
       const dom = newBuilderPage();
       const win = dom.window;
       await loadFixture(dom, FIXTURE);
@@ -661,15 +676,15 @@ function setModalInput(win, id, value) {
       const secondId = win.CoreLogic.cellId(singles[1].cells[0]);
 
       win.document.getElementById('requiredfield_' + firstId).click();
-      win.document.getElementById('reviewfield_' + secondId).click();
-      win.document.getElementById('reviewfield_' + firstId).click();
+      win.document.getElementById('secondaryfield_' + secondId).click();
+      win.document.getElementById('secondaryfield_' + firstId).click();
 
       const structure = win.__app.serializeStructure();
       assertEqual(structure.requiredFields, [firstId]);
-      assertEqual(structure.reviewFields, [firstId, secondId], 'クリックした順ではなく、シート上の並び順で並ぶべき');
+      assertEqual(structure.secondaryFields, [firstId, secondId], 'クリックした順ではなく、シート上の並び順で並ぶべき');
     });
 
-    await testAsync('一覧表示候補項目は、ファイル名項目を自動的に候補へ含み、そのチェックは操作できない', async () => {
+    await testAsync('2次入力画面表示項目は、ファイル名項目を自動的に候補へ含み、そのチェックは操作できない', async () => {
       const dom = newBuilderPage();
       const win = dom.window;
       await loadFixture(dom, FIXTURE);
@@ -678,11 +693,11 @@ function setModalInput(win, id, value) {
       const secondId = win.CoreLogic.cellId(singles[1].cells[0]);
 
       win.document.getElementById('filenamefield_' + firstId).click();
-      // ファイル名項目のチェックは一覧表示候補ピッカーの強制チェック状態には即時反映されない
-      // （どちらもrenderCheckPanelの次回描画時に反映される作り）ため、明示的に再描画する。
+      // ファイル名項目のチェックは2次入力画面表示項目ピッカーの強制チェック状態には即時反映
+      // されない（どちらもrenderCheckPanelの次回描画時に反映される作り）ため、明示的に再描画する。
       win.__app.renderCheckPanel();
       const forcedCheckbox = win.document.getElementById('displaycandidatefield_' + firstId);
-      assertTrue(forcedCheckbox.checked, 'ファイル名項目は自動的に一覧表示候補にもチェックされるべき');
+      assertTrue(forcedCheckbox.checked, 'ファイル名項目は自動的に2次入力画面表示項目にもチェックされるべき');
       assertTrue(forcedCheckbox.disabled, 'ファイル名項目由来のチェックは操作できないようにするべき');
 
       win.document.getElementById('displaycandidatefield_' + secondId).click();
@@ -690,30 +705,30 @@ function setModalInput(win, id, value) {
       assertEqual(structure.displayCandidateFields, [firstId, secondId], 'ファイル名項目＋追加選択分がシート順で入るはず');
     });
 
-    await testAsync('必須項目・レビュー欄・一覧表示候補項目の選択も、書き出し済みフォームHTMLの再読込で引き継がれる', async () => {
+    await testAsync('必須項目・2次入力欄・2次入力画面表示項目の選択も、書き出し済みフォームHTMLの再読込で引き継がれる', async () => {
       const dom = newBuilderPage();
       const win = dom.window;
       await loadFixture(dom, FIXTURE);
       const { singles } = win.CoreLogic.findMappingTargets(win.__app.CURRENT.grid, win.__app.CURRENT.sections, win.__app.CURRENT.maxCol, win.__app.CURRENT.manualGroups);
       const targetId = win.CoreLogic.cellId(singles[0].cells[0]);
       win.document.getElementById('requiredfield_' + targetId).click();
-      win.document.getElementById('reviewfield_' + targetId).click();
+      win.document.getElementById('secondaryfield_' + targetId).click();
       win.document.getElementById('displaycandidatefield_' + targetId).click();
 
       const structure = win.__app.serializeStructure();
       assertEqual(structure.requiredFields, [targetId]);
-      assertEqual(structure.reviewFields, [targetId]);
+      assertEqual(structure.secondaryFields, [targetId]);
       assertEqual(structure.displayCandidateFields, [targetId]);
 
       const fillerHtmlText = `<script>\nconst STRUCTURE = ${JSON.stringify(structure)};\n</script>`;
-      const file = new win.File([fillerHtmlText], 'required_review_test.html', { type: 'text/html' });
+      const file = new win.File([fillerHtmlText], 'required_secondary_test.html', { type: 'text/html' });
       win.__app.handleFormHtmlFile(file);
       await waitFor(() => win.__app.CURRENT && win.__app.CURRENT.mode === 'html');
 
       assertTrue(win.__app.CURRENT.requiredFieldIds.has(targetId), '再読込後もrequiredFieldIdsに引き継がれているべき');
-      assertTrue(win.__app.CURRENT.reviewFieldIds.has(targetId), '再読込後もreviewFieldIdsに引き継がれているべき');
+      assertTrue(win.__app.CURRENT.secondaryFieldIds.has(targetId), '再読込後もsecondaryFieldIdsに引き継がれているべき');
       assertEqual(win.__app.serializeStructure().requiredFields, [targetId]);
-      assertEqual(win.__app.serializeStructure().reviewFields, [targetId]);
+      assertEqual(win.__app.serializeStructure().secondaryFields, [targetId]);
       assertEqual(win.__app.serializeStructure().displayCandidateFields, [targetId]);
     });
 
@@ -790,29 +805,78 @@ function setModalInput(win, id, value) {
       assertTrue(details.querySelectorAll('li').length >= 4, '箇条書き4項目が含まれているべき');
     });
 
-    await testAsync('書き出し前チェックパネルにSTEP3（マッピング）・STEP4（書き出し）の見出しが表示される（作業場所に見出しが無い問題の解消）', async () => {
+    await testAsync('書き出し前チェックパネルにSTEP3（マッピング）・STEP4（項目の運用設定）・STEP5（書き出す）の見出しが表示される（作業場所に見出しが無い問題の解消）', async () => {
       const dom = newBuilderPage();
       const win = dom.window;
       await loadFixture(dom, FIXTURE);
       const panel = win.document.getElementById('check-panel');
       assertEqual(panel.querySelector('h3').textContent, 'データ構造確認', 'パネル自体の見出しはSTEP番号と独立して先頭にあるはず');
 
+      // 折りたたみトグル化に伴い、見出しの先頭に開閉記号（▾/▸）が付くため、
+      // includesで判定する（startsWithだと記号の分だけズレて一致しなくなる）。
       const stepLabels = Array.from(panel.querySelectorAll('p.step-label'));
-      const step3 = stepLabels.find(e => e.textContent.startsWith('STEP3'));
-      const step4 = stepLabels.find(e => e.textContent.startsWith('STEP4'));
+      const step3 = stepLabels.find(e => e.textContent.includes('STEP3'));
+      const step4 = stepLabels.find(e => e.textContent.includes('STEP4'));
+      const step5 = stepLabels.find(e => e.textContent.includes('STEP5'));
       assertTrue(!!step3, 'STEP3の見出しがパネル内に無い');
       assertTrue(!!step4, 'STEP4の見出しがパネル内に無い');
-      // STEP3見出しの直後にマッピングセクションが、STEP4見出しの直後にタイトル入力欄が続き、
-      // その後（タイトル欄・ファイル名項目欄を経て）書き出すボタンが現れること
-      assertTrue(step3.nextElementSibling.classList.contains('mapping-section'), 'STEP3の直後はマッピングセクションであるべき');
-      assertTrue(step4.nextElementSibling.classList.contains('form-title-row'), 'STEP4の直後はタイトル入力欄であるべき');
-      let sib = step4.nextElementSibling;
-      let foundButton = false;
-      while (sib) {
-        if (sib.querySelector && sib.querySelector('button')) { foundButton = true; break; }
-        sib = sib.nextElementSibling;
-      }
-      assertTrue(foundButton, 'STEP4のブロック内のどこかに書き出すボタンがあるべき');
+      assertTrue(!!step5, 'STEP5の見出しがパネル内に無い');
+      // STEP3見出しは「データ構造確認」見出しの直後に、マッピングセクションはパネル内の
+      // どこかに、STEP5見出し・一言メモの直後の折りたたみ内容（.step-content）に
+      // タイトル入力欄が続き、その後（タイトル欄・ファイル名項目欄を経て）書き出すボタンが
+      // 現れること（各STEP見出しの直下には一言メモ（p.step-memo）が入るため、折りたたみ
+      // 内容自体は見出しの2つ後の要素になる）。
+      assertEqual(panel.querySelector('h3').nextElementSibling, step3, 'STEP3見出しは「データ構造確認」見出しの直後にあるべき');
+      assertTrue(!!panel.querySelector('.mapping-section'), 'マッピングセクションがパネル内にあるべき');
+      assertTrue(step5.nextElementSibling.classList.contains('step-memo'), 'STEP5見出しの直後は一言メモであるべき');
+      const step5Content = step5.nextElementSibling.nextElementSibling;
+      assertTrue(step5Content.classList.contains('step-content'), 'STEP5メモの直後は折りたたみ内容（.step-content）であるべき');
+      assertTrue(step5Content.firstElementChild.classList.contains('form-title-row'), 'STEP5の折りたたみ内容の先頭はタイトル入力欄であるべき');
+      assertTrue(!!step5Content.querySelector('button'), 'STEP5のブロック内のどこかに書き出すボタンがあるべき');
+    });
+
+    await testAsync('STEP3/4/5の見出しをクリックすると折りたたまれ、他の手直しで再描画されても開閉状態が保たれる', async () => {
+      const dom = newBuilderPage();
+      const win = dom.window;
+      await loadFixture(dom, FIXTURE);
+      const panel = win.document.getElementById('check-panel');
+
+      // STEP3の見出しと中身（.step-content）は、間に注記・警告文が挟まるため兄弟要素では
+      // ない。中身は3つある.step-contentのうちDOM順で最初のものと決まっている（STEP3→
+      // STEP4→STEP5の順で描画されるため）。
+      const findStep3 = () => Array.from(panel.querySelectorAll('p.step-label')).find(e => e.textContent.includes('STEP3'));
+      const findStep3Content = () => panel.querySelectorAll('.step-content')[0];
+      let step3 = findStep3();
+      assertTrue(step3.textContent.startsWith('▾'), '初期状態は開いているはず（▾）');
+      assertFalse(findStep3Content().style.display === 'none', '初期状態では中身が表示されているはず');
+
+      step3.click(); // クリックのたびにrenderCheckPanel()が呼ばれ、パネル全体が作り直される
+      step3 = findStep3();
+      assertTrue(step3.textContent.startsWith('▸'), 'クリックで閉じた状態（▸）になるはず');
+      assertEqual(findStep3Content().style.display, 'none', '閉じたら中身が非表示になるはず');
+
+      // STEP3とは無関係な手直し（グループ化解除等の代わりにrenderCheckPanel直呼び）で
+      // パネル全体が再構築されても、閉じた状態が保たれること（毎回描画し直す設計のため）。
+      win.__app.renderCheckPanel();
+      step3 = findStep3();
+      assertTrue(step3.textContent.startsWith('▸'), '無関係な再描画をまたいでも閉じた状態が保たれるはず');
+      assertEqual(findStep3Content().style.display, 'none');
+
+      step3.click();
+      step3 = findStep3();
+      assertTrue(step3.textContent.startsWith('▾'), '再クリックで開いた状態に戻るはず');
+      assertFalse(findStep3Content().style.display === 'none');
+    });
+
+    await testAsync('書き出し前チェックOKの案内文は書き出しボタンの直前（隣接）に表示される', async () => {
+      const dom = newBuilderPage();
+      const win = dom.window;
+      await loadFixture(dom, FIXTURE);
+      const panel = win.document.getElementById('check-panel');
+      const okNote = Array.from(panel.querySelectorAll('p.m-note')).find(e => e.textContent.includes('問題は見つかりませんでした'));
+      assertTrue(!!okNote, 'このフィクスチャは書き出し前チェックOKのはず（案内文が見つからない）');
+      const btnRow = okNote.nextElementSibling;
+      assertTrue(!!btnRow && !!btnRow.querySelector('button'), 'OK案内文の直後がボタン行であるべき（書き出しボタンと隣接）');
     });
   });
 
