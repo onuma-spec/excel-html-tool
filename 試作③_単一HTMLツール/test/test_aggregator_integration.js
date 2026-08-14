@@ -221,7 +221,7 @@ async function readyPage(structure, opts) {
       const rec = win.__app.AGG.records.find(r => r.fileName === 'テスト様式_広報広聴事業_20260812.json');
       assertTrue(!!rec, '新しいファイル名で既存レコードが更新されているはず');
       assertFalse(win.__app.AGG.records.some(r => r.fileName === 'テスト様式_広報広聴事業_20260810.json'), '古いファイル名のレコードは残っていないはず（置き換え済み）');
-      assertTrue(win.document.getElementById('status').textContent.includes('既存事業の更新'), 'ステータスに更新件数の注記が出るはず');
+      assertTrue(win.document.getElementById('status').textContent.includes('既存データの更新'), 'ステータスに更新件数の注記が出るはず');
     });
 
     await testAsync('businessKeyForRecordは、fileNameFieldsの値をつないだ文字列を返す（fileNameFields未設定ならnull）', async () => {

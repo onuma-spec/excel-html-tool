@@ -293,7 +293,7 @@ async function handleFileInput(fileList) {
   const { added, updated } = upsertRecords(newRecords);
   renderLoadedList();
   renderConfigDescriptionForm();
-  const updatedNote = updated > 0 ? `（うち${updated}件は既存事業の更新）` : '';
+  const updatedNote = updated > 0 ? `（うち${updated}件は既存データの更新）` : '';
   setStatus(`${added}件読み込みました${updatedNote}（合計${AGG.records.length}件）。`);
 }
 
@@ -386,7 +386,7 @@ function renderDisplayFieldPicker() {
     idPrefix: 'cfgdisplay',
     keyOf: aggregateKey,
     refLabel: aggregateRefLabel,
-    noteText: '一覧表の列・詳細画面の概要欄に表示する項目を選びます（複数可）。「〜」（範囲表示）の項目は繰り返し行の列で、値はこの事業内で合計して1つの数値として表示します。',
+    noteText: '一覧表の列・詳細画面の概要欄に表示する項目を選びます（複数可）。「〜」（範囲表示）の項目は繰り返し行の列で、値はこのデータ内で合計して1つの数値として表示します。',
     isChecked: (key) => CONFIG.displayFieldIds.has(key),
     onToggle: (key, checked) => { if (checked) CONFIG.displayFieldIds.add(key); else CONFIG.displayFieldIds.delete(key); },
   }));
@@ -438,7 +438,7 @@ function renderAggregateFieldPicker() {
   root.appendChild(el('p', {
     class: 'hint',
     text: '合計を集計したい数値・金額項目を選び、単位（任意）を入力してください（例：千円）。'
-      + '「〜」（範囲表示）の項目は繰り返し行の列で、この事業内でまず合計してから、事業間でさらに合計します'
+      + '「〜」（範囲表示）の項目は繰り返し行の列で、このデータ内でまず合計してから、データ間でさらに合計します'
       + '（Excelの合計セルと同じ範囲を集計するため、数式セル自体を選ぶ必要はありません）。',
   }));
   const list = el('div', { class: 'filename-field-list' });

@@ -16,7 +16,7 @@ let EXPORT_DIR_HANDLE = null;
 // doExportAsForm()がそれぞれのフォーム固有の内容に置き換えてから書き出す。
 const FILLER_TEMPLATE = "__FILLER_TEMPLATE_JSON__";
 
-// ツール3（複数事業のJSONを集約し、閲覧ページを書き出す集約ツール）のHTML全文。
+// ツール3（複数件のJSONを集約し、閲覧ページを書き出す集約ツール）のHTML全文。
 // ビルド時（assemble.py）に埋め込まれる。「__STRUCTURE__」の1箇所だけが未確定のまま
 // 残っており（この集約ツール自身が閲覧ページのVIEWER_TEMPLATEを内包しているため、
 // ビューアー側のプレースホルダーはこの時点では触らない）、doExportAsAggregator()が
@@ -1389,7 +1389,7 @@ function renderCheckPanel() {
   );
   const displayCandidateEl = buildGenericFieldPicker(reachableSingles, {
     idPrefix: 'displaycandidatefield', storeKey: 'displayCandidateFieldIds', title: '2次入力画面表示項目',
-    noteText: '2次入力画面（複数の事業を一覧表で確認する画面）で、見出し列として表示してよい項目を選べます（複数可）。ファイル名に含める項目は自動的に候補へ含まれます。実際にどれを表示するかは2次入力者が画面上で選びます。',
+    noteText: '2次入力画面（複数のデータを一覧表で確認する画面）で、見出し列として表示してよい項目を選べます（複数可）。ファイル名に含める項目は自動的に候補へ含まれます。実際にどれを表示するかは2次入力者が画面上で選びます。',
     forceCheckedIds: fileNameIdSet,
   });
   box.appendChild(buildStepContentWrap('step4', [requiredFieldEl, displayCandidateEl, secondaryFieldEl]));
