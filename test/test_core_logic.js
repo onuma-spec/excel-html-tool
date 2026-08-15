@@ -229,6 +229,53 @@ runSuite('core_logic: 手動グループ化', () => {
   });
 });
 
+// 実機で発見したバグ：行の見出し・行内の見出しが「ユニット自体の高さ調整のためだけに」
+// 2行結合されているだけの、ごく普通の行内ラベルまで、複数行にまたがる結合セルは一律で
+// ラベル候補から除外する旧ロジック（row2 > c.row）に巻き込まれ、行のデータが丸ごと
+// 出力から消えていた（事務事業評価シートの「達成状況」「未達成の理由」欄で実際に発生）。
+// 判定基準を「c.row2 > c.row（2行以上にまたがるか）」から「c.row2 > u1（このユニット
+// 自体の範囲を超えて伸びているか）」に変更し、ユニット内で完結する2行結合ラベルは
+// 通常どおりラベルとして使われるようにした。本物のグループアンカー（複数ユニットに
+// またがる縦結合、例：A11:A19）は引き続き除外される（このsuiteの上にある「手動グループ化」
+// suiteのテストで確認済み）。
+runSuite('core_logic: ユニット内で完結する2行結合ラベル（本物のグループアンカーとの区別）', () => {
+  test('行の先頭ラベルが2行結合でも、そのユニット自体の範囲内なら通常どおりラベルとして使われる', () => {
+    // A26:A27相当（見た目の行高調整のためだけの2行結合ラベル）＋ C26:C27相当（同じく
+    // 2行結合の空欄入力セル）。どちらもこの1行ユニット自身の範囲（u1=2）に収まっている。
+    const ws = mockSheet({
+      maxRow: 2, maxCol: 2,
+      cells: [
+        { row: 1, col: 1, v: '理由', rowspan: 2 },
+        { row: 1, col: 2, rowspan: 2 }, // 空欄の入力セル（2行結合）
+      ],
+    });
+    const { grid, sections, maxCol } = extract(ws);
+    const out = CoreLogic.buildSectionObject(grid, sections[0] ? sections[0].row0 : 1, sections[0] ? sections[0].row1 : 2, maxCol, null, []);
+    assertEqual(out['理由'], '', '2行結合でもユニット内で完結するラベルは、そのまま項目名として使われるべき');
+  });
+
+  test('同じ行に2組のラベル＋値（どちらもユニット内で完結する2行結合）があっても、両方が別々のキーで残る', () => {
+    // 実際のバグ再現：「達成状況」（C列）と「未達成の理由」（F列）が同じ行に並ぶ構造。
+    const ws = mockSheet({
+      maxRow: 2, maxCol: 4,
+      cells: [
+        { row: 1, col: 1, v: '達成状況', rowspan: 2 },
+        { row: 1, col: 2, rowspan: 2 }, // 達成状況の値セル（空欄）
+        { row: 1, col: 3, v: '未達成の理由', rowspan: 2 },
+        { row: 1, col: 4, rowspan: 2 }, // 未達成の理由の値セル（空欄）
+      ],
+    });
+    const { grid, sections, maxCol } = extract(ws);
+    const { output, unreachable } = CoreLogic.findUnreachableCells(grid, sections, maxCol, []);
+    const relevant = unreachable.filter(c => c.row === 1 && (c.col === 2 || c.col === 4));
+    assertEqual(relevant.length, 0, '達成状況・未達成の理由の値セルはどちらもunreachableであってはいけない（実機で発見したバグの再現）');
+    // 行の先頭ラベル（達成状況）は行全体のラベルとしてassignEntryに渡され、値がオブジェクトの
+    // ため「ラベル_サブキー」の形にフラット化される（assignEntry参照）。行内の直前見出し
+    // （未達成の理由）はサブキーとしてそのまま使われる。
+    assertTrue('達成状況_未達成の理由' in output[sections[0].title], '「未達成の理由」というラベルがサブキーとして出力に含まれるべき');
+  });
+});
+
 runSuite('core_logic: 数式セルの除外', () => {
   test('数式セルはdbKeyを設定しても値としては出力されない（合計行の混入防止）', () => {
     const ws = mockSheet({
