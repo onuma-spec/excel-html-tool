@@ -13,6 +13,7 @@ __pycache__/
 
 # note記事関連（下書き・スクリーンショット一式）。ツール本体ではないためpublicリポジトリには含めない。
 /note_article_draft.md
+/note_article_draft_v2.md
 /note記事_関係図.html
 /元スクショ/
 /note_screenshots/
